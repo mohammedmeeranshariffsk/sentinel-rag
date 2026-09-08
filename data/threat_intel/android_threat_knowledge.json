@@ -1,0 +1,125 @@
+[
+  {
+    "knowledge_id": "THREAT-ACCESS-001",
+    "name": "Accessibility Service Abuse",
+    "description": "Android malware may abuse Accessibility Services to inspect UI content, interact with applications, automate actions, collect credentials, or provide remote device control.",
+    "platform": "android",
+    "families": [
+      "Anatsa",
+      "BrasDex",
+      "Vultur"
+    ],
+    "techniques": [
+      "accessibility_abuse",
+      "credential_collection",
+      "device_control"
+    ],
+    "apis": [
+      "getRootInActiveWindow",
+      "performAction",
+      "performGlobalAction",
+      "dispatchGesture",
+      "findAccessibilityNodeInfosByText",
+      "findAccessibilityNodeInfosByViewId"
+    ],
+    "permissions": [
+      "android.permission.BIND_ACCESSIBILITY_SERVICE"
+    ],
+    "strings": [],
+    "method_patterns": [],
+    "behaviors": [
+      {
+        "source": "AccessibilityNodeInfo",
+        "operation": "UI inspection and interaction",
+        "sink": null
+      }
+    ],
+    "source": "ThreatFabric Android banking malware research"
+  },
+  {
+    "knowledge_id": "THREAT-DYNAMIC-001",
+    "name": "Dynamic Code Loading",
+    "description": "Android malware may dynamically load DEX or other executable code to conceal functionality from static analysis or introduce additional behavior after installation.",
+    "platform": "android",
+    "families": [],
+    "techniques": [
+      "dynamic_code_loading",
+      "payload_loading",
+      "defense_evasion"
+    ],
+    "apis": [
+      "DexClassLoader",
+      "PathClassLoader",
+      "loadClass"
+    ],
+    "permissions": [],
+    "strings": [
+      ".dex"
+    ],
+    "method_patterns": [],
+    "behaviors": [
+      {
+        "source": "downloaded_or_local_payload",
+        "operation": "dynamic loading",
+        "sink": "DexClassLoader"
+      }
+    ],
+    "source": "Google Cloud Threat Intelligence Android malware research"
+  },
+  {
+    "knowledge_id": "THREAT-PERSIST-001",
+    "name": "Boot Persistence",
+    "description": "Malicious Android applications may use boot-completion events together with receivers or services to restart malicious functionality after device reboot.",
+    "platform": "android",
+    "families": [],
+    "techniques": [
+      "persistence",
+      "boot_execution"
+    ],
+    "apis": [],
+    "permissions": [
+      "android.permission.RECEIVE_BOOT_COMPLETED"
+    ],
+    "strings": [
+      "android.intent.action.BOOT_COMPLETED"
+    ],
+    "method_patterns": [
+      "onReceive"
+    ],
+    "behaviors": [
+      {
+        "source": "BOOT_COMPLETED",
+        "operation": "restart application service",
+        "sink": "background service"
+      }
+    ],
+    "source": "Microsoft Android malware research"
+  },
+  {
+    "knowledge_id": "THREAT-PROCESS-001",
+    "name": "Process and Command Execution",
+    "description": "Execution APIs can provide applications with command or process execution capability. This capability requires surrounding context before determining whether its use is malicious.",
+    "platform": "android",
+    "families": [],
+    "techniques": [
+      "command_execution"
+    ],
+    "apis": [
+      "exec"
+    ],
+    "permissions": [],
+    "strings": [
+      "/system/bin/sh",
+      "/system/bin/su"
+    ],
+    "method_patterns": [],
+    "behaviors": [
+      {
+        "source": "command",
+        "operation": "process execution",
+        "sink": "Runtime.exec"
+      }
+    ],
+    "source": "SentinelRAG generic Android security capability catalog"
+  }
+]

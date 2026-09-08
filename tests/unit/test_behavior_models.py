@@ -4,6 +4,7 @@ from sentinel.rules.behaviors.models import (
     EvidenceState,
 )
 from sentinel.rules.models import CodeLocation
+from pathlib import Path
 
 
 def test_behavior_signal_creation():
