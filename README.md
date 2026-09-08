@@ -1,271 +1,386 @@
-# SentinelRAG
+SentinelRAG
 
-**Evidence-grounded Android security and malware-behavior analysis using deterministic static analysis, security RAG, and LLM reasoning.**
+Threat-informed, evidence-grounded Android malware and security analysis using static program analysis, RAG and bounded agentic AI.
 
-> 🚧 Prototype under active development
+SentinelRAG investigates Android APKs by combining current threat knowledge with evidence extracted directly from application code.
 
-## What is SentinelRAG?
+Rather than relying exclusively on static signatures or asking an LLM to inspect an entire application, SentinelRAG identifies security-relevant capabilities, expands those observations into focused behavior context, retrieves relevant threat intelligence and lets an AI investigator reason over the evidence.
 
-SentinelRAG is a from-scratch Android security analysis platform for analyzing APKs using a hybrid architecture that combines deterministic static analysis with evidence-grounded AI reasoning.
+Why SentinelRAG?
 
-The project is designed around a fundamental principle:
+Traditional rule-based Android scanners are strong at detecting patterns they already know.
 
-> **Deterministic analysis discovers evidence. RAG provides security knowledge. The LLM reasons over evidence.**
+They may struggle with:
 
-SentinelRAG does not rely on an LLM to independently decide whether an APK is malicious or vulnerable.
+new malware behavior
+obfuscation
+indirect implementation
+reflection
+dynamic payloads
+uncommon execution paths
 
-```text
-APK
- ↓
-APK Inspection
- ↓
-Apktool + JADX
- ↓
-Manifest + Decompiled Code Analysis
- ↓
-┌──────────────────────────────┐
-│ Deterministic Rule Engine    │
-├──────────────────────────────┤
-│ Vulnerability Rules          │
-│ Malware Behavior Rules       │
-└──────────────────────────────┘
- ↓
-Evidence Extraction
- ↓
-Behavior Correlation
- ↓
-Security RAG
- ↓
-LLM Reasoning
- ↓
-Evidence Validation
- ↓
-Confidence + Severity
- ↓
-Structured Findings
- ↓
-JSON / HTML Report
-```
+Pure LLM analysis has the opposite problem:
 
-## Detection Architecture
+large APKs exceed practical context
+findings may be inconsistent
+evidence can be hallucinated
+analysis is difficult to reproduce
 
-SentinelRAG uses two complementary classes of deterministic detectors.
+SentinelRAG combines the strengths of both approaches.
 
-### Vulnerability Rules
+Threat Intelligence
+       +
+Static Program Analysis
+       +
+RAG
+       +
+Agentic Investigation
+       ↓
+Evidence-grounded conclusions
+Core Principle
 
-These identify insecure implementation patterns such as:
+Threat intelligence determines where SentinelRAG should look; program analysis determines what is actually present; the LLM determines what the collected evidence most plausibly means.
 
-* `SQLI-001` — SQL Injection
-* `SECRET-001` — Hardcoded Secrets
-* `WEBVIEW-001` — Insecure WebView Configuration
-* `EXPORT-001` — Exposed Android Components
-* `INTENT-001` — Intent Redirection
+Architecture
+                   Threat Intelligence Sources
+                              │
+                              ▼
+                    Threat Research Pipeline
+                              │
+                              ▼
+                    Threat Knowledge Base
+                      ┌───────┴───────┐
+                      │               │
+                Structured Intel   RAG Corpus
+                      │               │
+                      └───────┬───────┘
+                              │
 
-### Malware Behavior Rules
+==========================================================
 
-These identify security-relevant behaviors commonly associated with Android malware without immediately assigning a malware-family name.
+                           APK
+                            │
+                            ▼
+                    APK Decompilation
+                            │
+                            ▼
+                 Static Evidence Extraction
+                 ┌─────┬─────┬─────┬─────┐
+                 │     │     │     │
+               APIs strings methods manifest
+                 │     │     │     │
+                 └─────┴──┬──┴─────┘
+                          │
+                          ▼
+                  Capability Discovery
+                          │
+              generic security knowledge
+                         +
+                 current threat intel
+                          │
+                          ▼
+                Investigation Seeds
+                          │
+                          ▼
+                  Context Expansion
+               ┌──────────┼──────────┐
+               │          │          │
+             Xrefs     Call graph  Data flow
+               │          │          │
+               └──────────┼──────────┘
+                          ▼
+                 Security Behavior Slice
+                          │
+               ┌──────────┴──────────┐
+               │                     │
+               ▼                     ▼
+          APK Retrieval          Threat RAG
+               │                     │
+               └──────────┬──────────┘
+                          ▼
+                 Agentic Investigation
+                          │
+                          ▼
+                     LLM Analysis
+                          │
+                          ▼
+                  Evidence Validation
+                          │
+                          ▼
+                     Final Report
+Example
 
-Planned behavior detectors include:
+SentinelRAG observes:
 
-* `ACCESS-001` — Accessibility Service Abuse
-* `C2-001` — Suspicious Command-and-Control Communication
-* `NFC-001` — Suspicious NFC / Payment-Card Interaction
-* `LOADER-001` — Dynamic Payload Loading
-* `INSTALL-001` — Secondary APK Installation
-* `SCREEN-001` — Screen Capture / Recording
-* `REMOTE-001` — Remote Device-Control Behavior
-* `SMS-001` — Suspicious SMS Interception
-* `INJECT-001` — Process / Runtime Injection Indicators
-* `PERSIST-001` — System or Firmware Persistence Indicators
+DexClassLoader
 
-## Malware-Family Correlation
+That alone does not mean the application is malicious.
 
-SentinelRAG will correlate multiple independently detected behaviors against malware-family knowledge profiles.
+It becomes an investigation seed.
 
-Initial research profiles include:
+The analysis system may investigate:
 
-* Mamont
-* Anatsa
-* NGate
-* Vultur
-* Triada
+What dex file is loaded?
+        ↓
+Where does that file originate?
+        ↓
+Who writes it?
+        ↓
+Was it downloaded?
+        ↓
+Is it decrypted first?
+        ↓
+What code is invoked after loading?
 
-A malware profile is **not a signature detector**.
+Possible resulting evidence:
+
+HTTP response
+    ↓
+decrypt()
+    ↓
+payload.dex
+    ↓
+DexClassLoader
+    ↓
+reflection
+    ↓
+payload method invocation
+
+Only after collecting this context does the reasoning layer evaluate the behavior.
+
+Security Behavior Slices
+
+SentinelRAG avoids sending entire decompiled applications to the LLM.
+
+Instead it constructs focused Security Behavior Slices.
+
+Example:
+
+Seed
+----
+getRootInActiveWindow()
+
+Manifest
+--------
+BIND_ACCESSIBILITY_SERVICE
+
+Call context
+------------
+onAccessibilityEvent()
+    ↓
+collectText()
+    ↓
+encrypt()
+    ↓
+upload()
+
+Related APIs
+------------
+AccessibilityNodeInfo.getText()
+Cipher.doFinal()
+OkHttpClient
+
+Relevant strings
+----------------
+"password"
+"/device/update"
+
+This gives the reasoning model focused, evidence-rich context.
+
+Threat-Informed Analysis
+
+SentinelRAG maintains structured knowledge such as:
+
+malware techniques
+Android APIs
+permissions
+method patterns
+interesting strings
+behavior relationships
+source/sink patterns
+known malware characteristics
+
+This intelligence determines where the analyzer should invest additional effort.
+
+Threat intelligence is treated as guidance, not proof.
+
+RAG
+
+SentinelRAG uses retrieval in two distinct ways.
+
+Threat Knowledge Retrieval
+
+Sources may include:
+
+Android malware research
+OWASP MASVS / MASTG
+CWE
+Android documentation
+security research
+ATT&CK
+APK Retrieval
+
+Searches:
+
+methods
+source code
+strings
+API usage
+call relationships
+behavior slices
+
+Together these give the AI investigator both:
+
+What security research says
+
+and:
+
+What this APK actually does
+Agentic Investigation
+
+The AI investigator may call controlled analysis tools such as:
+
+search_api()
+search_string()
+find_xrefs()
+inspect_method()
+find_callers()
+find_callees()
+trace_data_flow()
+inspect_manifest_component()
+retrieve_threat_intel()
+
+Example:
+
+Hypothesis
+    ↓
+Need additional evidence?
+    ↓
+request analysis tool
+    ↓
+collect evidence
+    ↓
+re-evaluate hypothesis
+    ↓
+final conclusion
+
+The agent is bounded by explicit tools and evidence requirements.
+
+Evidence Model
+
+SentinelRAG differentiates:
+
+OBSERVED
+Direct evidence from APK artifacts.
+
+INFERRED
+Derived through program analysis.
+
+SEMANTIC_SUSPECT
+AI-discovered hypothesis requiring validation.
+
+CORRELATED
+Multiple observations support a higher-level behavior.
+
+NOT_VERIFIABLE_FROM_APK
+Requires runtime or external evidence.
+Existing Foundation
+
+Currently implemented:
+
+APK inspection
+SHA-256 workspace model
+Apktool integration
+JADX integration
+AndroidManifest.xml analysis
+Java source analysis
+SQL injection prototype
+malware behavior prototype
+CLI
+automated tests
+
+Current test baseline:
+
+22 passed
+Deterministic Rules
+
+SentinelRAG retains deterministic analysis where it provides strong value.
 
 For example:
 
-```text
-Accessibility abuse
-+
-remote-control behavior
-+
-screen capture
-+
-C2 communication
+SQL injection source → sink
+debuggable configuration
+exported components
+cleartext settings
 
-        ↓
+However deterministic rules are not gatekeepers.
 
-Vultur-like behavioral correlation
-```
+A new or complex malicious behavior may still be investigated even when no existing rule detects it.
 
-SentinelRAG should report:
+Current Development Goal
 
-```text
-Vultur-like behavior observed
-```
+The immediate goal is a one-week end-to-end prototype demonstrating:
 
-rather than:
+APK
+ ↓
+evidence extraction
+ ↓
+security capability
+ ↓
+threat-informed investigation seed
+ ↓
+behavior slice
+ ↓
+RAG
+ ↓
+agentic investigation
+ ↓
+LLM conclusion
+ ↓
+evidence validation
 
-```text
-Confirmed Vultur infection
-```
+The emphasis is depth and evidence quality rather than broad vulnerability coverage.
 
-unless sufficient independent evidence exists to support such attribution.
+Repository Direction
 
-## Evidence Model
+Planned architecture:
 
-Every finding should distinguish between different levels of knowledge:
+src/sentinel/
+├── apk/
+├── decompiler/
+├── manifest/
+├── extraction/
+├── program_analysis/
+├── threat_intel/
+├── retrieval/
+├── investigation/
+├── reasoning/
+├── correlation/
+├── rules/
+├── reporting/
+└── cli/
+Project Philosophy
 
-```text
-OBSERVED
-    Directly visible in the APK.
+SentinelRAG is not intended to be:
 
-INFERRED
-    Derived from deterministic relationships between observed artifacts.
+APK → LLM → "malicious"
 
-CORRELATED
-    Behavior resembles a known vulnerability or malware technique/profile.
+Nor is it intended to be:
 
-NOT_VERIFIABLE_FROM_APK
-    Requires dynamic, device, firmware, network, or external analysis.
-```
+APK → hundreds of regex signatures
 
-This prevents retrieved threat intelligence or LLM reasoning from being mistaken for APK evidence.
+Instead:
 
-## Current Prototype Status
+Current threat knowledge
+          ↓
+Where should we investigate?
+          ↓
+Program analysis
+          ↓
+What does the APK actually do?
+          ↓
+RAG + agentic reasoning
+          ↓
+What conclusion is supported by evidence?
 
-The following foundation is implemented:
-
-* APK validation and SHA-256 fingerprinting
-* Per-APK analysis workspace
-* Apktool integration
-* JADX integration
-* Decompiled Java source discovery
-* Smali discovery
-* AndroidManifest.xml parsing
-* Permission extraction
-* Android application security flag extraction
-* Activity, service, receiver, and provider extraction
-* Explicit exported-component detection
-* Intent-filter extraction
-* Deep-link extraction
-* Deterministic rule-engine framework
-* Structured `SecurityCandidate` findings
-* Java/Kotlin source scanner
-* SQL Injection detector (`SQLI-001`)
-* String concatenation SQL construction detection
-* `StringBuilder` SQL construction detection
-* `rawQuery()` sink detection
-* `execSQL()` sink detection
-* Source, sink, class, method, line, and code evidence extraction
-* Real APK validation against AndroGoat
-* Automated test suite
-
-### Current Validation
-
-The current test suite passes:
-
-```text
-12 passed
-```
-
-Real AndroGoat analysis currently identifies SQL injection candidates in:
-
-```text
-InsecureStorageSQLiteActivity.java
-    EditText.getText().toString()
-        ↓
-    StringBuilder
-        ↓
-    SQLiteDatabase.execSQL()
-
-SQLinjectionActivity.java
-    EditText.getText().toString()
-        ↓
-    StringBuilder
-        ↓
-    SQLiteDatabase.rawQuery()
-```
-
-## Current Development Focus
-
-The next milestone introduces the malware-behavior detection layer.
-
-The first behavior rule will be:
-
-```text
-ACCESS-001 — Suspicious Accessibility Service Behavior
-```
-
-This will establish the architecture required for later behavior correlation and malware-family profiling.
-
-## Design Principles
-
-SentinelRAG follows several architectural principles:
-
-1. Deterministic analysis happens before LLM reasoning.
-2. Every final security finding requires concrete APK evidence.
-3. Security RAG supplies knowledge, not proof.
-4. The LLM contextualizes and reasons over evidence rather than replacing static analysis.
-5. Vulnerability presence and exploitability are separate concepts.
-6. Individual suspicious behaviors do not automatically identify a malware family.
-7. Malware-family attribution requires correlation across multiple independent behaviors.
-8. Confidence and severity are separate dimensions.
-9. Static APK analysis must clearly identify conclusions that require dynamic or device-level verification.
-10. The project is implemented independently from scratch.
-
-## Planned Intelligence Layer
-
-Later versions will add:
-
-```text
-Deterministic candidates
-        +
-Security / threat-intelligence RAG
-        +
-Behavior correlation
-        +
-LLM reasoning
-        +
-Evidence validator
-        ↓
-Evidence-grounded security assessment
-```
-
-The knowledge base is expected to include material from sources such as:
-
-* OWASP MASVS
-* OWASP MASTG
-* CWE
-* Android security documentation
-* MITRE ATT&CK
-* Android malware research
-* Vendor threat-intelligence reports
-
-## Roadmap
-
-See [`PROJECT_PLAN.md`](PROJECT_PLAN.md).
-
-## Current State
-
-See [`PROJECT_STATE.md`](PROJECT_STATE.md).
-
-## Architecture Decisions
-
-See [`DECISIONS.md`](DECISIONS.md).
-
-## Disclaimer
-
-SentinelRAG is intended exclusively for authorized security testing, malware research, education, defensive security analysis, and security engineering research.
-
-It is not intended for unauthorized access, exploitation, malware deployment, or malicious activity.
+That is the SentinelRAG approach.
