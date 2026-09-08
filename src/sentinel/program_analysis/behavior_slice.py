@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -18,7 +19,21 @@ class BehaviorSliceBuilder:
     Builds bounded source-code context around an investigation seed.
     """
 
-    def __init__(self, context_lines: int = 8) -> None:
+    STRING_PATTERN = re.compile(
+        r'"(?P<value>(?:\\.|[^"\\])*)"'
+    )
+
+    CODE_LIKE_TOKENS = (
+        "Runtime.",
+        ".exec(",
+        ".readLine(",
+        ".getRuntime(",
+    )
+
+    def __init__(
+        self,
+        context_lines: int = 8,
+    ) -> None:
         self.context_lines = context_lines
 
     def build_from_api(
@@ -39,10 +54,14 @@ class BehaviorSliceBuilder:
                 encoding="utf-8",
                 errors="ignore",
             ).splitlines()
+
         except OSError:
             return None
 
         line_index = api.location.line - 1
+
+        if line_index < 0 or line_index >= len(lines):
+            return None
 
         start = max(
             0,
@@ -56,16 +75,9 @@ class BehaviorSliceBuilder:
 
         code_context = lines[start:end]
 
-        related_strings = []
-
-        for line in code_context:
-            parts = line.split('"')
-
-            for index in range(1, len(parts), 2):
-                value = parts[index].strip()
-
-                if value:
-                    related_strings.append(value)
+        related_strings = self._extract_related_strings(
+            code_context
+        )
 
         return BehaviorSlice(
             seed=api.full_reference,
@@ -73,4 +85,38 @@ class BehaviorSliceBuilder:
             line=api.location.line,
             code_context=code_context,
             related_strings=related_strings,
+        )
+
+    def _extract_related_strings(
+        self,
+        code_context: list[str],
+    ) -> list[str]:
+
+        related_strings: list[str] = []
+
+        for line in code_context:
+            for match in self.STRING_PATTERN.finditer(line):
+
+                value = match.group("value").strip()
+
+                if not value:
+                    continue
+
+                # Ignore very small/noisy values such as "n".
+                if len(value) < 2:
+                    continue
+
+                # Ignore strings that are actually decompiler/debug
+                # representations of source-code expressions.
+                if any(
+                    token in value
+                    for token in self.CODE_LIKE_TOKENS
+                ):
+                    continue
+
+                related_strings.append(value)
+
+        # Preserve original order while removing duplicates.
+        return list(
+            dict.fromkeys(related_strings)
         )

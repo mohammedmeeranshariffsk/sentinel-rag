@@ -8,6 +8,17 @@ from sentinel.extraction.pipeline import ExtractionPipeline
 from sentinel.manifest.analyzer import ManifestAnalyzer
 from sentinel.threat_intel import ThreatKnowledgeBase, ThreatMatcher
 
+from dotenv import load_dotenv
+
+from sentinel.program_analysis import BehaviorSliceBuilder
+from sentinel.rag.document_loader import KnowledgeDocumentLoader
+from sentinel.rag.embeddings import GeminiEmbeddingProvider
+from sentinel.rag.indexer import KnowledgeIndexer
+from sentinel.rag.query_builder import RetrievalQueryBuilder
+from sentinel.rag.retriever import ThreatKnowledgeRetriever
+from sentinel.rag.vector_store import QdrantVectorStore
+
+load_dotenv()
 
 app = typer.Typer(
     name="sentinel",
@@ -182,6 +193,38 @@ def analyze_apk(
         knowledge=knowledge,
     )
 
+    # Build the RAG knowledge index.
+
+    documents = KnowledgeDocumentLoader().load_json(
+        Path("data/knowledge/android_security.json")
+    )
+
+    embedding_provider = GeminiEmbeddingProvider(
+        dimension=768
+    )
+
+    vector_store = QdrantVectorStore(
+        collection_name="sentinel_security_analysis",
+        dimension=768,
+        location=":memory:",
+    )
+
+    KnowledgeIndexer(
+        embedding_provider=embedding_provider,
+        vector_store=vector_store,
+    ).index(documents)
+
+    retriever = ThreatKnowledgeRetriever(
+        embedding_provider=embedding_provider,
+        vector_store=vector_store,
+    )
+
+    query_builder = RetrievalQueryBuilder()
+
+    slice_builder = BehaviorSliceBuilder(
+        context_lines=8
+    )
+
     typer.echo("")
     typer.echo("SentinelRAG Threat-Informed Analysis")
     typer.echo("=" * 40)
@@ -219,29 +262,62 @@ def analyze_apk(
 
         typer.echo(f"Score: {match.score}")
 
-        if match.matched_apis:
-            typer.echo("Matched APIs:")
+        matching_apis = [
+            api
+            for api in extraction.apis
+            if api.api_name in match.matched_apis
+        ]
 
-            for api in match.matched_apis:
-                typer.echo(f"  - {api}")
+        if not matching_apis:
+            typer.echo(
+                "No API evidence available for behavior slicing."
+            )
+            continue
 
-        if match.matched_permissions:
-            typer.echo("Matched Permissions:")
+        # Prototype:
+        # use first matching API occurrence.
+        api = matching_apis[0]
 
-            for permission in match.matched_permissions:
-                typer.echo(f"  - {permission}")
+        behavior_slice = slice_builder.build_from_api(
+            api
+        )
 
-        if match.matched_strings:
-            typer.echo("Matched Strings:")
+        if behavior_slice is None:
+            typer.echo(
+                "Unable to construct behavior slice."
+            )
+            continue
 
-            for value in match.matched_strings:
+        typer.echo("")
+        typer.echo("Behavior Slice")
+        typer.echo(f"File: {behavior_slice.file}")
+        typer.echo(f"Line: {behavior_slice.line}")
+        typer.echo(f"Seed: {behavior_slice.seed}")
+
+        if behavior_slice.related_strings:
+            typer.echo("Related Strings:")
+
+            for value in behavior_slice.related_strings:
                 typer.echo(f"  - {value}")
 
-        if match.matched_methods:
-            typer.echo("Matched Methods:")
+        query = query_builder.build(
+            threat_match=match,
+            behavior_slice=behavior_slice,
+        )
 
-            for method in match.matched_methods:
-                typer.echo(f"  - {method}")
+        retrieved = retriever.retrieve(
+            query=query,
+            limit=3,
+        )
+
+        typer.echo("")
+        typer.echo("Retrieved Security Knowledge")
+
+        for result in retrieved:
+            typer.echo(
+                f"  [{result.score:.4f}] "
+                f"{result.title}"
+            )
 
 
 if __name__ == "__main__":
