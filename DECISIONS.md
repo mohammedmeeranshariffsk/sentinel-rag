@@ -1,222 +1,85 @@
 # SentinelRAG Architecture Decisions
 
-## ADR-001 — Build From Scratch
+## Authority
 
-SentinelRAG is implemented independently.
+When implementation choices conflict with the project direction, `PROJECT_PLAN.md` and `DECISIONS.md` are the architectural source of truth. Update these documents intentionally before changing the project's core direction.
 
-External Android security tools may be studied for ideas and comparison, but their implementation is not copied.
+## ADR-001 — Android malware behavior investigation is the primary direction
 
----
+SentinelRAG is an AI-assisted Android malware behavior investigation system, not primarily a generic vulnerability scanner. Malware investigation requires relationships, execution context, threat knowledge and careful attribution. Broad OWASP coverage would diffuse the prototype before that core capability is established.
 
-## ADR-002 — Evidence Before Conclusions
+## ADR-002 — Evidence precedes conclusions
 
-SentinelRAG must collect observable APK evidence before producing security conclusions.
+Observable APK artifacts must precede security conclusions. APIs, methods, strings, permissions, manifest configuration, source locations and bounded context are evidence inputs. No individual indicator is a vulnerability or malware verdict, and the LLM is not an APK parser.
 
-Evidence includes:
+## ADR-003 — Threat intelligence guides investigation but does not prove behavior
 
-* manifest configuration
-* APIs
-* strings
-* methods
-* permissions
-* source locations
-* bounded code context
+Threat and malware research determine where analysis effort should be spent. A threat match produces an investigation seed. Retrieved research, similarity scores and family associations cannot establish that the APK performs the described behavior.
 
-The LLM is not the primary APK parser or static analyzer.
+## ADR-004 — Relationships matter more than isolated indicators
 
----
+An isolated capability such as accessibility access, process execution or dynamic loading has many possible meanings. Source-to-transform-to-sink relationships, lifecycle context and correlated indicators provide stronger hypotheses. Future knowledge and matching must model these relationships explicitly.
 
-## ADR-003 — Threat Intelligence Guides Investigation
+## ADR-005 — Program analysis is authoritative for APK facts
 
-Threat intelligence determines where SentinelRAG should investigate.
+Program analysis determines what is observable locally and across the APK. Deterministic validation controls which LLM references and structured claims may be promoted into findings. Runtime execution, exploitability and intent remain unverified unless suitable analysis supports them.
 
-A threat-intelligence match does not prove malware or vulnerability existence.
+Evidence uses three distinct scopes:
 
-Threat matches produce investigation seeds.
+- `LOCAL`: the current BehaviorSlice or future Behavior Graph.
+- `APK`: broader APK indicators without an implied local relationship.
+- `KNOWLEDGE`: external threat/security context.
 
----
+Evidence states remain `OBSERVED`, `INFERRED`, `SEMANTIC_SUSPECT`, `CORRELATED`, and `NOT_VERIFIABLE_FROM_APK`.
 
-## ADR-004 — Program Analysis Establishes APK Facts
+## ADR-006 — The Behavior Graph combines calls, data flow and Android context
 
-Program analysis determines what is actually observable in the APK.
+A call graph alone cannot represent Android malware behavior. The target Behavior Graph combines caller/callee relationships, sources and sinks, data flow, method boundaries, lifecycle entry points, callbacks, components, Intents, permissions, strings, endpoints and file/class provenance. This bounded representation will become the main APK context for reasoning.
 
-External threat reports and RAG documents cannot establish that an APK contains a behavior unless APK evidence supports the claim.
+## ADR-007 — Entire APK source must not be sent to the LLM
 
----
+Whole-APK prompting is costly, difficult to reproduce and prone to unsupported conclusions. Threat matching should select seeds, and program analysis should progressively expand only the relevant bounded context.
 
-## ADR-005 — RAG Provides Knowledge, Not Proof
+## ADR-008 — The LLM reasons but is not the evidence authority
 
-Vector similarity is retrieval relevance, not security evidence.
+The LLM may generate hypotheses, correlate observations, explain suspicious behavior, compare APK evidence with retrieved knowledge, identify missing evidence and request bounded follow-up investigation. It must not independently establish runtime execution, exploitability, malicious intent, family attribution or an unsupported source-to-sink flow. SentinelRAG requests concise structured reasoning and does not expose chain-of-thought.
 
-A high similarity score does not prove:
+## ADR-009 — RAG supplies context, never proof
 
-* malware
-* exploitability
-* vulnerability existence
-* malware-family attribution
+Gemini embeddings and Qdrant retrieval rank external documents for relevance. Retrieved content and vector similarity remain `KNOWLEDGE`; they never become `LOCAL` or `APK` evidence. External content cannot establish a finding without APK support.
 
-RAG exists to provide relevant external security knowledge to the reasoning layer.
+## ADR-010 — Deterministic validation controls evidence assertions
 
----
+Post-LLM validation checks structured references, scope and supported claims without another LLM call. Unsupported or cross-scope references are rejected or downgraded. This makes the published finding contract stricter than free-form model output.
 
-## ADR-006 — Generic Capabilities Are Sensors
+## ADR-011 — The local-flow analyzer is malware-analysis infrastructure
 
-Capabilities such as:
+The bounded Java flow analyzer proves the value of deterministic source-to-sink validation. Its current `EditText` to command construction to `Runtime.exec` support is a prototype, not the start of a broad regex vulnerability scanner. It should evolve toward malware-relevant relationships such as credential collection to transmission, SMS interception to exfiltration, download to dynamic loading and boot receiver to service startup.
 
-* process execution
-* accessibility interaction
-* dynamic code loading
-* native loading
-* persistence-related behavior
+## ADR-012 — Severity is deterministic and separate from LLM confidence
 
-are investigation signals.
+Severity describes supported security impact; confidence describes evidentiary support. The two must not be equated. The prototype assigns `MEDIUM` to a fully observed local user-input-to-`Runtime.exec` flow while explicitly withholding claims about injection, exploitability, runtime reachability and intent.
 
-Capability presence alone does not imply malicious behavior.
+## ADR-013 — Local threat knowledge retains provenance
 
----
+Behavior, indicator, technique, campaign and family records must retain source references, dates and confidence. Provenance enables review and maintenance. It does not transform research into APK proof. Automatic Internet research and knowledge updates remain a later milestone.
 
-## ADR-007 — Bounded Behavior Context
+## ADR-014 — Malware-family attribution is conservative
 
-SentinelRAG will not send an entire decompiled APK to the LLM.
+Shared APIs and generic behaviors are insufficient for family attribution. Prefer qualified similarity language, and publish family claims only when distinctive, validated APK evidence supports them. SentinelRAG should say evidence is insufficient when that threshold is not met.
 
-Investigation uses bounded Security Behavior Slices containing the evidence relevant to a specific hypothesis.
+## ADR-015 — Agentic investigation is bounded and evidence-driven
 
-Future slices may include:
+Future agentic analysis may request approved searches, xrefs, method inspection, manifest inspection, data-flow traces and knowledge retrieval. It must use an explicit tool allowlist, iteration limits and evidence references, with no unrestricted filesystem or Internet access during APK analysis.
 
-* enclosing method
-* xrefs
-* callers/callees
-* related strings
-* manifest context
-* source/sink relationships
-* data flow
+## ADR-016 — Provider and retrieval infrastructure remain replaceable
 
----
+Reasoning uses a provider protocol rather than embedding CLI behavior in a provider. The prototype uses Gemini structured output, Gemini embeddings with 768-dimensional vectors, and Qdrant. These choices may be replaced without changing the evidence contract.
 
-## ADR-008 — Separate APK Evidence Retrieval From Threat Knowledge Retrieval
+## ADR-017 — The RuleEngine/BehaviorEngine-first architecture is retired
 
-APK evidence and external security knowledge are different information domains.
+The earlier design centered on fixed vulnerability engines and a large deterministic catalog. Focused deterministic sensors remain useful, but they support threat-informed investigation and validation rather than gate what the system may investigate.
 
-SentinelRAG keeps them conceptually separate:
+## ADR-018 — Build one credible vertical slice before production breadth
 
-```text
-APK Evidence
-    +
-Threat/Security Knowledge
-    ↓
-Reasoning
-```
-
-This prevents retrieved threat intelligence from being confused with facts observed in the APK.
-
----
-
-## ADR-009 — Qdrant for Vector Retrieval
-
-The prototype uses Qdrant for vector search.
-
-Development and tests may use local/in-memory Qdrant.
-
-A persistent/server deployment can be introduced later without changing retrieval semantics.
-
----
-
-## ADR-010 — Gemini Embeddings for Prototype
-
-The prototype currently uses Gemini embeddings with:
-
-```text
-dimension = 768
-```
-
-The embedding layer remains isolated so another provider can replace it later.
-
----
-
-## ADR-011 — Provider-Abstraction for LLM Reasoning
-
-The reasoning layer must not be tightly coupled to a single LLM provider.
-
-A provider interface will allow implementations such as:
-
-* Gemini
-* OpenRouter
-* local models
-
----
-
-## ADR-012 — Evidence-Grounded Findings
-
-Every final security finding must reference concrete APK evidence.
-
-The reasoning layer may generate hypotheses, explanations, severity assessments, and remediation, but unsupported claims must not become validated findings.
-
----
-
-## ADR-013 — Conservative Malware Attribution
-
-Similarity to known malware behavior is not equivalent to malware-family identification.
-
-Prefer language such as:
-
-```text
-Vultur-like accessibility behavior
-```
-
-rather than:
-
-```text
-Confirmed Vultur
-```
-
-unless sufficient evidence supports attribution.
-
----
-
-## ADR-014 — Retire Rule-Engine-First Architecture
-
-The original prototype architecture centered on:
-
-```text
-RuleEngine
-BehaviorEngine
-five fixed vulnerability detectors
-```
-
-has been retired.
-
-SentinelRAG now uses:
-
-```text
-Evidence Extraction
- ↓
-Capability Discovery
- ↓
-Threat-Informed Investigation
- ↓
-Behavior Context
- ↓
-RAG
- ↓
-LLM Reasoning
- ↓
-Evidence Validation
-```
-
-Deterministic rules may later return as high-confidence sensors, but they will not gate what the system is allowed to investigate.
-
----
-
-## ADR-015 — Prototype First
-
-The current goal is one compelling end-to-end vertical slice.
-
-Do not delay the prototype for:
-
-* perfect static analysis
-* hundreds of detections
-* perfect call graphs
-* production infrastructure
-* unrestricted autonomous agents
-
-The architecture should remain extensible without prematurely implementing every production component.
+The prototype prioritizes an evidence-grounded end-to-end malware behavior investigation over perfect call graphs, whole-program taint, hundreds of rules, distributed infrastructure or unrestricted agents. Evaluation and production hardening follow after the behavior model and graph are credible.

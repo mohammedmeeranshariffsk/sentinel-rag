@@ -1,444 +1,163 @@
-# SentinelRAG — Prototype Execution Plan
+# SentinelRAG Project Plan
 
-## Goal
+## North Star
 
-Build an evidence-grounded Android security intelligence system that combines Android reverse engineering, program analysis, threat intelligence, RAG, and LLM reasoning.
+SentinelRAG is primarily an AI-assisted Android malware behavior investigation system. It is not primarily a generic Android vulnerability scanner.
 
-The prototype must demonstrate:
+> Threat and malware research determines where SentinelRAG should look; program analysis determines what is actually present; RAG supplies relevant external threat knowledge; the LLM reasons over the combined evidence; deterministic validation controls what may be asserted as evidence.
 
-```text
-APK
- ↓
-Reverse Engineering
- ↓
-Evidence Extraction
- ↓
-Threat-Informed Investigation
- ↓
-Behavior Context
- ↓
-Security RAG
- ↓
-LLM Reasoning
- ↓
-Evidence Validation
- ↓
-Structured Security Report
-```
+No isolated API, string, permission, method, capability, threat match, retrieval score, or LLM statement is a malware verdict.
 
-## Core Architecture Principle
+When implementation choices conflict with the project direction, `PROJECT_PLAN.md` and `DECISIONS.md` are the architectural source of truth. Update these documents intentionally before changing the project's core direction.
 
-> Threat intelligence determines where SentinelRAG should look; program analysis determines what is actually present; RAG supplies relevant external knowledge; the LLM reasons over the combined evidence.
-
-No individual signal is automatically a vulnerability or malware verdict.
-
----
-
-# Phase 1 — APK Foundation
-
-Status: COMPLETE
-
-Implemented:
-
-* APK ingestion
-* SHA256
-* workspace
-* Apktool
-* JADX
-* manifest parsing
-* package-aware source resolution
-
----
-
-# Phase 2 — Static Evidence Extraction
-
-Status: COMPLETE
-
-Implemented:
-
-* API extraction
-* string extraction
-* method extraction
-* permission extraction
-* capability discovery
-
-Output:
+## Target Architecture
 
 ```text
-ExtractionResult
-├── APIs
-├── Strings
-├── Methods
-├── Permissions
-└── Capabilities
+Threat / Malware Research
+        ↓
+Maintained Local Threat Knowledge Repository
+        ↓
+Structured Malware Behavior Knowledge
+        ├─ indicators and weights
+        ├─ sources, sinks and relationships
+        ├─ techniques and family references
+        └─ provenance
+        ↓
+APK Inspection → Apktool + JADX → Manifest Analysis
+        ↓
+Static Evidence Extraction
+        ├─ APIs, methods, strings and permissions
+        ├─ components and intents
+        └─ libraries and other indicators
+        ↓
+Threat / Behavior Matching → Investigation Seeds
+        ↓
+Call Graph + Bounded Context / Data-Flow Expansion
+        ↓
+Behavior Graph
+        ↓
+Security / Malware RAG
+        ↓
+LLM Malware Behavior Analysis
+        ↓
+Deterministic Evidence Validation
+        ↓
+Structured Findings / Report
 ```
 
----
+The entire decompiled APK must not be sent to the LLM. Each seed should cause progressive, bounded context expansion. The resulting Behavior Graph will become the primary APK context supplied to the LLM.
 
-# Phase 3 — Threat Intelligence
+A call graph alone is insufficient. Stronger behavior evidence combines call relationships, data flow, method boundaries, Android lifecycle and callback context, component and Intent transitions, relevant strings and permissions, endpoints, and the files and classes involved.
 
-Status: COMPLETE FOR PROTOTYPE
+## Evidence Contract
 
-Implemented:
+Evidence scopes remain separate:
 
-* ThreatKnowledge schema
-* structured threat knowledge
-* ThreatKnowledgeBase
-* ThreatMatcher
-* ranked investigation seeds
+- `LOCAL`: evidence within a BehaviorSlice or future Behavior Graph.
+- `APK`: broader indicators found elsewhere in the APK.
+- `KNOWLEDGE`: retrieved external threat or security context.
 
-Important:
+Evidence states are `OBSERVED`, `INFERRED`, `SEMANTIC_SUSPECT`, `CORRELATED`, and `NOT_VERIFIABLE_FROM_APK`.
+
+External knowledge never becomes APK evidence. Broader APK evidence does not establish participation in a local execution relationship. Program analysis and deterministic validation are authoritative for APK claims.
+
+The LLM may propose hypotheses, correlate indicators, explain behavior, compare evidence with research, identify gaps, and request further investigation. It must not independently establish runtime execution, exploitability, malicious intent, malware-family attribution, or a source-to-sink flow absent from program analysis. Only concise analyst-facing reasoning is retained; hidden chain-of-thought is neither requested nor validated.
+
+## Malware Behavior Knowledge Model
+
+The next major milestone is a structured behavior model rather than a larger collection of isolated signatures. A behavior definition should eventually represent:
+
+- behavior ID, name, description, confidence and indicator weights;
+- APIs, methods, strings, permissions, components, intents and libraries;
+- sources, sinks and behavioral relationships;
+- associated techniques and conservative malware-family references;
+- provenance, source references and research dates.
+
+Relationships carry more evidentiary value than presence alone. `AccessibilityService` is a weak signal; a locally supported chain from an accessibility callback through credential-related text collection to network transmission is a substantially stronger hypothesis.
+
+Initial investigation categories include accessibility abuse, credential collection, overlay deception, SMS and notification interception, command execution, dynamic and native code loading, boot and service persistence, device-admin abuse, sensitive-data and clipboard/contact/location collection, storage access, network communication, exfiltration, C2-like communication, anti-analysis, root behavior, and package discovery. These categories are investigation lenses, not automatic verdicts.
+
+## Target Local Knowledge Repository
+
+The exact layout may evolve. The intended direction is:
 
 ```text
-Threat Match ≠ Finding
+data/
+  threat_intel/
+    behaviors/
+    malware_families/
+    techniques/
+    campaigns/
+  indicators/
+    api_patterns.json
+    method_patterns.json
+    string_patterns.json
+    permission_patterns.json
+    component_patterns.json
+  knowledge/
+    android_security/
+    malware_research/
+    attack_techniques/
 ```
 
-A match only determines what deserves further investigation.
+Research ingestion should eventually transform trusted Android malware and security research into provenance-aware local records containing indicators, relationships, techniques, family associations, source URLs, dates, and confidence. Research-derived knowledge guides investigation; it does not prove behavior in an analyzed APK. Automatic Internet research and updates are a later milestone.
 
----
+## Milestones and Roadmap
 
-# Phase 4 — Behavior Context
+Completed prototype foundation:
 
-Status: INITIAL VERSION COMPLETE
+1. APK inspection, hashing, workspace handling and Apktool/JADX integration.
+2. Manifest analysis and static extraction of APIs, methods, strings and permissions.
+3. Generic capability extraction, structured threat knowledge and threat matching.
+4. Ranked investigation seeds and bounded BehaviorSlice construction.
+5. Gemini embeddings, Qdrant indexing and Top-K knowledge retrieval.
+6. Provider-based Gemini structured reasoning with evidence-separated prompts.
+7. Deterministic reference validation, structured findings, CLI output and JSON reports.
+8. A bounded local Java flow analyzer for simple input-to-`Runtime.exec` relationships.
 
-Implemented:
+Next priorities:
 
-* BehaviorSlice
-* bounded source context
-* related strings
+1. Malware Behavior Knowledge Model.
+2. Structured behavior and indicator repository.
+3. Behavior Matcher and multi-indicator correlation.
+4. Call Graph Builder.
+5. Bounded context and data-flow expansion.
+6. Behavior Graph.
+7. Threat-knowledge retrieval for matched behavior.
+8. LLM behavior analysis over Behavior Graph context.
+9. Expanded deterministic evidence validation.
+10. Structured malware-analysis report.
+11. Bounded, evidence-driven agentic investigation.
+12. Threat-research ingestion and knowledge maintenance.
+13. Evaluation and benchmarking.
+14. Production observability and API.
 
-Next improvements after the vertical slice:
+The existing local-flow analyzer is program-analysis infrastructure for this roadmap. It should grow toward relationships such as credential collection to transmission, SMS interception to exfiltration, accessibility events to credential extraction, download to dynamic loading, command construction to process execution, boot receiver to service startup, and overlay creation to credential collection. Broad OWASP vulnerability-flow coverage is not the immediate priority.
 
-* enclosing-method extraction
-* xrefs
-* callers/callees
-* manifest relationships
-* basic data flow
+## Prototype Success
 
-Do not implement a perfect whole-program call graph during the prototype.
+The prototype succeeds when `sentinel analyze <apk>` provides a reproducible vertical slice from real APK evidence through threat-informed investigation, bounded behavior context, relevant external knowledge, structured LLM reasoning, deterministic validation, and a structured report without presenting retrieved knowledge or unsupported model output as APK fact.
 
----
-
-# Phase 5 — Security RAG
-
-Status: ACTIVE
-
-Implemented:
-
-* KnowledgeDocument
-* KnowledgeChunk
-* chunking
-* Gemini embeddings
-* 768-dimensional vectors
-* Qdrant
-* indexing
-* semantic Top-K retrieval
-
-Validated:
+The demonstrated AndroGoat local flow is:
 
 ```text
-Runtime.exec + /system/bin/su
+EditText-derived input
+        ↓
+StringBuilder command construction with "ping "
+        ↓
+Runtime.getRuntime().exec(ip1)
 ```
 
-retrieves command-execution security knowledge as the highest-ranked result.
-
-## Remaining
-
-### 5.1 APK → RAG Integration
-
-Automatically construct the retrieval query from:
-
-* threat investigation seed
-* matching APK API
-* BehaviorSlice
-* related strings
-* capability
-* relevant manifest evidence
-
-Remove hardcoded test queries.
-
-### 5.2 Knowledge Ingestion
-
-Create a small provenance-aware corpus from authoritative Android security and threat sources.
-
-Each knowledge item should retain:
-
-* source
-* title
-* source URL
-* publication date when available
-* retrieved/ingested date
-* category
-* threat family when applicable
-* techniques
-* chunk ID
-* document ID
-
-### 5.3 Retrieval Quality
-
-After the vertical slice works:
-
-* similarity threshold
-* metadata filtering
-* deduplication
-* optional reranking
-* retrieval evaluation
-
----
-
-# Phase 6 — LLM Security Reasoning
-
-Status: NOT STARTED
-
-Create an LLM provider abstraction.
-
-Input:
-
-```text
-Investigation Seed
-+
-APK Behavior Slice
-+
-Manifest Evidence
-+
-Retrieved Threat Knowledge
-```
-
-Structured output should include:
-
-```text
-hypothesis
-behavior
-security_assessment
-confidence
-apk_evidence_refs
-knowledge_refs
-missing_evidence
-remediation
-reasoning_summary
-```
-
-The model must distinguish:
-
-* observed facts
-* inferred behavior
-* external knowledge
-* unsupported hypotheses
-
----
-
-# Phase 7 — Evidence Validation
-
-Status: NOT STARTED
-
-Validate LLM output against collected APK evidence.
-
-Reject or downgrade unsupported claims.
-
-Evidence states:
-
-```text
-OBSERVED
-INFERRED
-SEMANTIC_SUSPECT
-CORRELATED
-NOT_VERIFIABLE_FROM_APK
-```
-
-RAG similarity never becomes `OBSERVED`.
-
----
-
-# Phase 8 — Bounded Agentic Investigation
-
-Status: NOT STARTED
-
-After basic LLM reasoning works, allow the reasoner to request additional evidence through bounded tools.
-
-Candidate tools:
-
-```text
-search_api
-search_string
-inspect_method
-find_xrefs
-inspect_manifest_component
-retrieve_threat_intel
-```
-
-Constraints:
-
-* maximum iterations
-* explicit tool allowlist
-* evidence references
-* no unrestricted filesystem access
-* no unrestricted internet browsing during APK analysis
-
-LangGraph is optional and should only be introduced if orchestration complexity justifies it.
-
----
-
-# Phase 9 — Reporting
-
-Status: NOT STARTED
-
-Produce:
-
-### CLI
-
-Concise analyst-oriented findings.
-
-### JSON
-
-Machine-readable evidence-grounded report.
-
-HTML can follow after the JSON contract is stable.
-
----
-
-# Prototype Acceptance Criteria
-
-The prototype is complete when one command can perform:
-
-```text
-sentinel analyze <apk>
-```
-
-and execute:
-
-```text
-APK inspection
-✓
-
-decompilation
-✓
-
-manifest analysis
-✓
-
-evidence extraction
-✓
-
-capability discovery
-✓
-
-threat matching
-✓
-
-behavior slicing
-✓
-
-RAG retrieval
-[IN PROGRESS]
-
-LLM reasoning
-[TODO]
-
-evidence validation
-[TODO]
-
-structured report
-[TODO]
-```
-
----
-
-# Current Test APK
-
-Primary demonstration target:
-
-```text
-AndroGoat.apk
-```
-
-Known extraction baseline:
-
-```text
-APIs:         688
-Strings:      479
-Methods:      172
-Permissions:  3
-Capabilities: 1
-```
-
-Known high-value investigation seed:
-
-```text
-Process and Command Execution
-
-Evidence:
-exec
-/system/bin/su
-```
-
----
-
-# Current Test Baseline
-
-```text
-20 passed
-```
-
-Tests must remain independent of external Gemini API availability unless explicitly marked as integration tests.
-
----
-
-# Current Next Step
-
-Implement:
-
-```text
-Real APK
- ↓
-Threat Match
- ↓
-Matching APK Evidence
- ↓
-Behavior Slice
- ↓
-Automatic RAG Query
- ↓
-Gemini Embedding
- ↓
-Qdrant
- ↓
-Top-K Security Knowledge
-```
-
-Then proceed directly to LLM reasoning.
-
----
-
-# Explicit Non-Goals for Current Prototype
-
-Do not implement yet:
-
-* hundreds of vulnerability rules
-* perfect AST analysis
-* full interprocedural taint
-* perfect whole-program call graph
-* dynamic analysis
-* Frida
-* exploit generation
-* native RE
-* multi-agent architecture
-* Kubernetes
-* distributed workers
-* production dashboard
-
----
-
-# Post-Prototype Roadmap
-
-After the vertical slice:
-
-1. improve xrefs and data flow
-2. expand provenance-aware security corpus
-3. improve retrieval evaluation
-4. add deterministic high-confidence sensors where useful
-5. add quantitative evaluation
-6. add observability with Phoenix/OpenTelemetry
-7. expose platform through FastAPI
-8. add CI/CD
-9. add SARIF/HTML reporting
-10. benchmark against representative vulnerable and benign APKs
+Its deterministic classification is `USER_INPUT_TO_COMMAND_EXECUTION`, `OBSERVED`, `MEDIUM`. This proves a visible local source-to-sink relationship. It does not prove runtime reachability, exploitability, shell interpretation, command injection impact, malicious intent, or malware attribution.
+
+## Current Non-Goals
+
+- Full whole-program taint analysis or perfect call-graph recovery.
+- Dynamic instrumentation or native-code reverse engineering.
+- Automatic malware-family attribution or autonomous malware verdicts.
+- Scanning every OWASP vulnerability category.
+- Sending the entire APK source to an LLM.
+- Replacing deterministic program analysis with an LLM.
+- Building hundreds of regex rules.
+- Unrestricted autonomous agents.
+- Production-scale distributed infrastructure or dashboards.

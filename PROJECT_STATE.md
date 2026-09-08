@@ -1,268 +1,77 @@
 # SentinelRAG Project State
 
-## Current Phase
+## Architectural Checkpoint
 
-Threat-Informed RAG Prototype
+Current branch: `refactor/threat-informed-architecture`
 
-## Current Milestone
+SentinelRAG has an end-to-end threat-informed analysis path with bounded local evidence, RAG context, structured Gemini reasoning, deterministic validation, structured findings, and optional JSON reporting. The primary product direction is Android malware behavior investigation. `PROJECT_PLAN.md` and `DECISIONS.md` govern future architectural choices.
 
-Connect real APK behavior evidence to RAG retrieval, then implement evidence-grounded LLM reasoning.
+## Implemented and Verified
 
-## Current Architecture
+- APK inspection, SHA-256 calculation and workspace creation.
+- Apktool/JADX decompilation orchestration and application source resolution.
+- Manifest parsing.
+- Extraction models and extractors for APIs, methods, Java strings and permissions.
+- Generic capability extraction.
+- `ThreatKnowledge`, local JSON loading, deterministic `ThreatMatcher`, and ranked seeds.
+- Bounded `BehaviorSlice` context with related quoted Java strings.
+- RAG document/chunk models, loading, chunking, Gemini embeddings, Qdrant indexing, retrieval, and evidence-derived queries.
+- Provider-independent reasoning, Gemini structured JSON generation, evidence-separated prompts, validated `SecurityReasoningResult`, and safe provider errors.
+- Deterministic local/APK/knowledge reference and claim validation.
+- Evidence states: `OBSERVED`, `INFERRED`, `SEMANTIC_SUSPECT`, `CORRELATED`, and `NOT_VERIFIABLE_FROM_APK`.
+- Structured `SecurityFinding`, deterministic finding construction, concise CLI rendering, and `--output-json` reports.
+- Bounded local Java flow recognition for simple `EditText.getText().toString()` propagation through assignment, concatenation or `StringBuilder.append()` into `Runtime.getRuntime().exec(variable)`.
+- Tests that block network access and mock Gemini.
 
-```text
-APK
- ↓
-APK Inspection
- ↓
-Apktool + JADX
- ↓
-Manifest Analysis
- ↓
-Static Evidence Extraction
- ├─ APIs
- ├─ Strings
- ├─ Methods
- └─ Permissions
- ↓
-Capability Discovery
- ↓
-Structured Threat Knowledge
- ↓
-Threat Matching
- ↓
-Investigation Seeds
- ↓
-Behavior Slice
- ↓
-Security RAG
- ├─ Chunking
- ├─ Gemini Embeddings
- ├─ Qdrant
- └─ Top-K Retrieval
- ↓
-LLM Security Reasoning
- ↓
-Evidence Validation
- ↓
-Structured Report
-```
+Current verified test baseline: `101 passed`.
 
-## Core Principle
-
-Threat intelligence determines where SentinelRAG should look.
-
-Program analysis determines what is actually present in the APK.
-
-RAG provides relevant external security knowledge.
-
-The LLM reasons over APK evidence and retrieved knowledge.
-
-No individual layer is allowed to independently declare malware solely from similarity, an API name, a string, or a threat-intelligence match.
-
-## Completed
-
-### APK Pipeline
-
-* [x] APK inspection
-* [x] SHA256 calculation
-* [x] Workspace creation
-* [x] Apktool integration
-* [x] JADX integration
-* [x] Manifest parsing
-* [x] Application source-root resolution
-
-### Evidence Extraction
-
-* [x] API extraction
-* [x] String extraction
-* [x] Method extraction
-* [x] Permission extraction
-* [x] Generic capability discovery
-
-AndroGoat baseline:
+## Current Runtime Pipeline
 
 ```text
-APIs:         688
-Strings:      479
-Methods:      172
-Permissions:  3
-Capabilities: 1
+APK → inspection/decompilation → extraction → threat matching
+    → BehaviorSlice → RAG retrieval → Gemini structured reasoning
+    → deterministic evidence validation → SecurityFinding
+    → console output and optional JSON report
 ```
 
-### Threat Intelligence
+Gemini and individual-seed failures are reported safely and do not terminate remaining analysis. External knowledge remains contextual provenance and is never promoted to APK evidence.
 
-* [x] ThreatKnowledge schema
-* [x] ThreatKnowledgeBase
-* [x] ThreatMatcher
-* [x] Initial structured Android threat knowledge
-* [x] Ranked investigation seeds
-
-Current AndroGoat seeds include:
+## Demonstrated AndroGoat Behavior
 
 ```text
-THREAT-PROCESS-001
-Process and Command Execution
-
-Matched:
-- exec
-- /system/bin/su
+EditText-derived input
+        ↓
+StringBuilder command construction with prefix "ping "
+        ↓
+Runtime.getRuntime().exec(ip1)
 ```
 
-A weak Boot Persistence match based only on `onReceive` has also been observed and is intentionally treated as a signal-quality issue rather than proof of persistence.
+- Category: `USER_INPUT_TO_COMMAND_EXECUTION`
+- Evidence state: `OBSERVED`
+- Severity: `MEDIUM`
 
-### Program Analysis
+The bounded analyzer establishes that user-derived text contributes to the command value passed to `Runtime.exec`. It does not establish runtime reachability, shell interpretation, separator handling, command-injection impact, exploitability, malicious intent, or malware attribution.
 
-* [x] Bounded BehaviorSlice model
-* [x] Source-code context around API investigation seeds
-* [x] Related-string extraction
+## Current Limitations
 
-### RAG
+- Threat knowledge is a small prototype JSON dataset, not the planned behavior-oriented repository.
+- `ThreatMatcher` scores isolated API, permission, string, and method overlap; it does not match behavior graphs or Android components.
+- API extraction uses lightweight text matching and lacks complete Java/Kotlin type resolution.
+- `BehaviorSlice` is line-bounded and lacks method, caller/callee, lifecycle, component and Intent expansion.
+- Local flow analysis is a bounded regex/identifier propagation prototype. It does not handle branches, loops, fields, aliases, interprocedural calls, Kotlin, reflection, obfuscation, or complete Java semantics.
+- No call graph or Behavior Graph exists.
+- Broader APK matches lack sufficient location detail to establish local participation.
+- Retrieval provenance records supplied fields but does not authenticate original research sources.
+- Gemini reasoning depends on network, model availability, authentication, rate limits and quota. Findings publish deterministic summaries rather than unchecked model prose.
+- Malware-family attribution remains unsupported without distinctive, validated evidence.
+- Bounded agentic investigation and automatic research ingestion are not implemented.
 
-* [x] KnowledgeDocument model
-* [x] KnowledgeChunk model
-* [x] KnowledgeChunker
-* [x] Gemini embedding provider
-* [x] 768-dimensional embeddings
-* [x] Qdrant vector store
-* [x] Knowledge indexer
-* [x] ThreatKnowledgeRetriever
-* [x] End-to-end semantic retrieval test
+## Immediate Next Milestone
 
-Validated query:
+Build the **Malware Behavior Knowledge Model + Behavior Matcher** before expanding into broad generic vulnerability flows.
 
-```text
-Runtime.exec + /system/bin/su
-```
+This milestone should define relationship-aware, provenance-bearing behavior records and correlate multiple APK observations into stronger investigation seeds. It must preserve the distinction between research guidance, broader APK indicators, and locally established behavior.
 
-Top result:
+## Retired Direction
 
-```text
-Android Process and Shell Command Execution
-Similarity: ~0.82
-```
-
-### Testing
-
-Current automated test baseline:
-
-```text
-20 passed
-```
-
-## Currently Working On
-
-Integrating real APK evidence with RAG.
-
-Target:
-
-```text
-Threat Match
- ↓
-Matching APK Evidence
- ↓
-Behavior Slice
- ↓
-Automatic Retrieval Query
- ↓
-Gemini Embedding
- ↓
-Qdrant
- ↓
-Top-K Threat/Security Context
-```
-
-## Next
-
-1. Connect BehaviorSlice directly to RAG retrieval.
-2. Replace the temporary hardcoded RAG integration query.
-3. Add real threat/security document ingestion with provenance.
-4. Implement LLM provider abstraction.
-5. Implement structured evidence-grounded security reasoning.
-6. Validate LLM claims against APK evidence.
-7. Produce JSON report.
-8. Produce concise CLI report/demo.
-
-## Known Issues
-
-### Weak threat matches
-
-Generic methods such as:
-
-```text
-onReceive
-```
-
-can currently create weak threat matches.
-
-Threat matches are investigation seeds, not findings.
-
-Future matching should require stronger evidence or multiple correlated indicators.
-
-### API resolution
-
-Current API extraction is lightweight and does not perform complete Java/Kotlin type resolution.
-
-### Behavior slicing
-
-Current slices use bounded source context.
-
-Call graph, xrefs, and data-flow analysis remain future improvements.
-
-### RAG corpus
-
-Current RAG documents are a small curated plumbing-test corpus.
-
-They must be replaced/expanded with properly sourced threat and Android security knowledge carrying provenance metadata.
-
-## Explicitly Retired
-
-The previous architecture based primarily on:
-
-```text
-RuleEngine
-BehaviorEngine
-large deterministic vulnerability catalogs
-```
-
-has been removed from the active prototype.
-
-Deterministic analysis may still be used later as targeted sensors, but it is not the primary architecture.
-
-## Out of Scope for Current Prototype
-
-* Full interprocedural taint analysis
-* Perfect call graph
-* Dynamic sandbox
-* Frida integration
-* Native-code reverse engineering
-* Hundreds of vulnerability rules
-* Automated exploit generation
-* Multi-agent architecture
-* Kubernetes
-* Distributed workers
-* Production dashboard
-
-## Prototype Success Condition
-
-The prototype is successful when:
-
-```text
-APK
- ↓
-real APK evidence
- ↓
-threat-informed investigation
- ↓
-behavior context
- ↓
-relevant RAG knowledge
- ↓
-LLM security reasoning
- ↓
-evidence validation
- ↓
-structured finding/report
-```
-
-works end-to-end on a real APK.
+The previous RuleEngine/BehaviorEngine-first architecture and broad deterministic vulnerability catalog are retired. Deterministic analysis remains valuable as focused evidence sensors and validators within the malware behavior investigation pipeline.
