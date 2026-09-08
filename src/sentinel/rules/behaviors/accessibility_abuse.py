@@ -12,13 +12,24 @@ from sentinel.rules.behaviors.models import (
 from sentinel.rules.models import CodeLocation
 
 
+ACCESSIBILITY_PERMISSION = (
+    "android.permission.BIND_ACCESSIBILITY_SERVICE"
+)
+
+ACCESSIBILITY_ACTION = (
+    "android.accessibilityservice.AccessibilityService"
+)
+
+
 class AccessibilityAbuseRule(BehaviorRule):
     behavior_id = "ACCESS-001"
     name = "Suspicious Accessibility Service Behavior"
+
     description = (
         "Detects combinations of Android Accessibility Service APIs "
         "that may indicate UI inspection or automation."
     )
+
     category = "accessibility"
     default_severity = "HIGH"
 
@@ -93,12 +104,21 @@ class AccessibilityAbuseRule(BehaviorRule):
         except OSError:
             return []
 
-        signals: list[BehaviorSignal] = []
+        # Start with manifest-level evidence.
+        signals: list[BehaviorSignal] = (
+            self._collect_manifest_signals(manifest)
+        )
 
         class_name = self._extract_class_name(lines)
 
+        # Collect source-code signals.
         for line_number, line in enumerate(lines, start=1):
-            for signal_id, pattern, description, weight in self.SIGNALS:
+            for (
+                signal_id,
+                pattern,
+                description,
+                weight,
+            ) in self.SIGNALS:
                 if not pattern.search(line):
                     continue
 
@@ -126,14 +146,35 @@ class AccessibilityAbuseRule(BehaviorRule):
 
         signals = self._deduplicate_signals(signals)
 
-        score = sum(signal.weight for signal in signals)
+        # Manifest declarations alone are not sufficient.
+        # We require at least one source-code behavior signal.
+        has_source_signal = any(
+            signal.signal_id.startswith("ACCESS-SRC-")
+            for signal in signals
+        )
+
+        if not has_source_signal:
+            return []
+
+        score = sum(
+            signal.weight
+            for signal in signals
+        )
 
         if score < 3.0:
             return []
 
         confidence = self._calculate_confidence(score)
 
-        primary_location = signals[0].location
+        # Prefer a real source-code location over manifest-only signals.
+        primary_location = next(
+            (
+                signal.location
+                for signal in signals
+                if signal.location is not None
+            ),
+            None,
+        )
 
         return [
             BehaviorCandidate(
@@ -165,18 +206,83 @@ class AccessibilityAbuseRule(BehaviorRule):
             )
         ]
 
+    def _collect_manifest_signals(
+        self,
+        manifest: ManifestAnalysis | None,
+    ) -> list[BehaviorSignal]:
+        """
+        Collect accessibility-related evidence from AndroidManifest.xml.
+
+        The current ManifestAnalysis model exposes service permissions
+        and intent-filter actions. Accessibility metadata can be added
+        later when the manifest parser supports component meta-data.
+        """
+        if manifest is None:
+            return []
+
+        signals: list[BehaviorSignal] = []
+
+        for service in manifest.services:
+            if service.permission == ACCESSIBILITY_PERMISSION:
+                signals.append(
+                    BehaviorSignal(
+                        signal_id="ACCESS-MANIFEST-001",
+                        description=(
+                            "Service protected by "
+                            "BIND_ACCESSIBILITY_SERVICE"
+                        ),
+                        evidence_state=EvidenceState.OBSERVED,
+                        evidence=(
+                            f"{service.name} declares permission "
+                            f"{ACCESSIBILITY_PERMISSION}"
+                        ),
+                        weight=2.0,
+                    )
+                )
+
+            for intent_filter in service.intent_filters:
+                if ACCESSIBILITY_ACTION in intent_filter.actions:
+                    signals.append(
+                        BehaviorSignal(
+                            signal_id="ACCESS-MANIFEST-002",
+                            description=(
+                                "AccessibilityService intent "
+                                "action declared"
+                            ),
+                            evidence_state=EvidenceState.OBSERVED,
+                            evidence=(
+                                f"{service.name} declares action "
+                                f"{ACCESSIBILITY_ACTION}"
+                            ),
+                            weight=1.5,
+                        )
+                    )
+
+        return self._deduplicate_signals(signals)
+
     @staticmethod
-    def _calculate_confidence(score: float) -> float:
+    def _calculate_confidence(
+        score: float,
+    ) -> float:
         if score >= 8.0:
             return 0.90
+
         if score >= 5.0:
             return 0.75
+
         return 0.55
 
     @staticmethod
     def _deduplicate_signals(
         signals: list[BehaviorSignal],
     ) -> list[BehaviorSignal]:
+        """
+        Keep only one occurrence of each signal type.
+
+        For the prototype, repeated uses of the same API increase
+        evidence quantity but should not automatically inflate the
+        behavioral confidence score.
+        """
         seen: set[str] = set()
         unique: list[BehaviorSignal] = []
 
@@ -190,13 +296,16 @@ class AccessibilityAbuseRule(BehaviorRule):
         return unique
 
     @staticmethod
-    def _extract_class_name(lines: list[str]) -> str | None:
+    def _extract_class_name(
+        lines: list[str],
+    ) -> str | None:
         class_pattern = re.compile(
             r"\bclass\s+([A-Za-z_][A-Za-z0-9_]*)"
         )
 
         for line in lines:
             match = class_pattern.search(line)
+
             if match:
                 return match.group(1)
 
@@ -209,24 +318,36 @@ class AccessibilityAbuseRule(BehaviorRule):
     ) -> str | None:
         method_pattern = re.compile(
             r"\b([A-Za-z_][A-Za-z0-9_]*)\s*"
-            r"\([^;{}]*\)\s*(?:throws\s+[^{]+)?\{"
+            r"\([^;{}]*\)\s*"
+            r"(?:throws\s+[^{]+)?\{"
         )
 
-        start_index = max(0, line_number - 20)
+        start_index = max(
+            0,
+            line_number - 20,
+        )
 
-        for index in range(line_number - 1, start_index - 1, -1):
-            match = method_pattern.search(lines[index])
+        for index in range(
+            line_number - 1,
+            start_index - 1,
+            -1,
+        ):
+            match = method_pattern.search(
+                lines[index]
+            )
 
-            if match:
-                candidate = match.group(1)
+            if not match:
+                continue
 
-                if candidate not in {
-                    "if",
-                    "for",
-                    "while",
-                    "switch",
-                    "catch",
-                }:
-                    return candidate
+            candidate = match.group(1)
+
+            if candidate not in {
+                "if",
+                "for",
+                "while",
+                "switch",
+                "catch",
+            }:
+                return candidate
 
         return None
