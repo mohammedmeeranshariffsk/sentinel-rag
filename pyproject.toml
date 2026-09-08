@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sentinel-rag"
+version = "0.1.0"
+description = "Evidence-grounded Android security analysis using static analysis, RAG, and LLM reasoning"
+readme = "README.md"
+requires-python = ">=3.11"
+
+dependencies = [
+    "typer",
+    "pydantic",
+    "pydantic-settings",
+    "pyyaml",
+    "python-dotenv",
+    "requests",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[project.scripts]
+sentinel = "sentinel.cli.main:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

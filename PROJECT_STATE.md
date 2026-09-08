@@ -19,9 +19,29 @@ Create the initial project structure and CLI.
 - [ ] Project structure created
 - [ ] CLI created
 
+## Completed
+
+- [x] Repository created
+- [x] Python environment created
+- [x] Project structure created
+- [x] APKContext created
+- [x] APK SHA256 implemented
+- [x] Workspace manager implemented
+- [x] APK inspection tests added
+
 ## Currently Working On
 
-- [ ] Initial project skeleton
+- [ ] CLI integration
+
+## Next
+
+- [ ] Create `sentinel inspect`
+- [ ] Add CLI → APKInspector integration
+- [ ] Add human-readable inspection output
+
+## Known Issues
+
+None
 
 ## Next
 
