@@ -93,16 +93,14 @@ class BehaviorSliceBuilder:
     ) -> list[str]:
 
         related_strings: list[str] = []
+        seen: set[str] = set()
 
         for line in code_context:
             for match in self.STRING_PATTERN.finditer(line):
 
                 value = match.group("value").strip()
 
-                if not value:
-                    continue
-
-                # Ignore very small/noisy values such as "n".
+                # Ignore empty or very small/noisy values such as "n".
                 if len(value) < 2:
                     continue
 
@@ -114,9 +112,9 @@ class BehaviorSliceBuilder:
                 ):
                     continue
 
-                related_strings.append(value)
+                if value not in seen:
+                    seen.add(value)
+                    related_strings.append(value)
 
         # Preserve original order while removing duplicates.
-        return list(
-            dict.fromkeys(related_strings)
-        )
+        return related_strings
