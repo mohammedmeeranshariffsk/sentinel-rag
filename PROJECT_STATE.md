@@ -14,13 +14,6 @@ Create the initial project structure and CLI.
 
 ## Completed
 
-- [ ] Repository created
-- [ ] Python environment created
-- [ ] Project structure created
-- [ ] CLI created
-
-## Completed
-
 - [x] Repository created
 - [x] Python environment created
 - [x] Project structure created
@@ -28,6 +21,7 @@ Create the initial project structure and CLI.
 - [x] APK SHA256 implemented
 - [x] Workspace manager implemented
 - [x] APK inspection tests added
+- [x] Real APK inspection verified with AndroGoat
 
 ## Currently Working On
 
@@ -38,6 +32,7 @@ Create the initial project structure and CLI.
 - [ ] Create `sentinel inspect`
 - [ ] Add CLI → APKInspector integration
 - [ ] Add human-readable inspection output
+- [ ] Add APK metadata extraction
 
 ## Known Issues
 
