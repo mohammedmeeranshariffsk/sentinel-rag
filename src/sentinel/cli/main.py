@@ -17,6 +17,12 @@ from sentinel.rag.indexer import KnowledgeIndexer
 from sentinel.rag.query_builder import RetrievalQueryBuilder
 from sentinel.rag.retriever import ThreatKnowledgeRetriever
 from sentinel.rag.vector_store import QdrantVectorStore
+from sentinel.reasoning.analyzer import SecurityReasoningAnalyzer
+from sentinel.reasoning.gemini import GeminiReasoningProvider
+from sentinel.reasoning.errors import safe_reasoning_error
+from sentinel.validation.validator import EvidenceValidator
+from sentinel.findings.builder import FindingBuilder
+from sentinel.reporting.models import APKMetadata, AnalysisMetadata, SecurityReport
 
 load_dotenv()
 
@@ -24,6 +30,40 @@ app = typer.Typer(
     name="sentinel",
     help="Threat-informed Android security analysis.",
 )
+
+
+def render_validated_finding(finding) -> None:
+    typer.echo(f"\n[{finding.severity.value}] {finding.title}")
+    typer.echo(f"Confidence: {finding.confidence:.2f}")
+    typer.echo(f"Evidence State: {finding.evidence_state.value}")
+    typer.echo(f"Assessment: {finding.assessment}")
+    typer.echo("\nAPK Evidence:")
+    if not finding.apk_evidence:
+        typer.echo("- None")
+    for item in finding.apk_evidence:
+        if item.scope == "LOCAL":
+            typer.echo(f"File: {item.file}")
+            typer.echo(f"Line: {item.line}")
+            for flow in item.local_data_flows:
+                typer.echo(f"Source: {flow.source}")
+                for transform in flow.transforms:
+                    typer.echo(f"Transform: {transform}")
+                typer.echo(f"Sink: {flow.sink}")
+            if item.related_strings:
+                typer.echo("Strings: " + ", ".join(item.related_strings))
+        elif item.matched_indicators:
+            values = [value for group in item.matched_indicators.values() for value in group]
+            typer.echo("Broader APK Indicators: " + ", ".join(values))
+    typer.echo("\nKnowledge References:")
+    for item in finding.knowledge_references:
+        source = f" ({item.source})" if item.source else ""
+        typer.echo(f"- {item.title} [{item.reference}]{source}")
+    if not finding.knowledge_references:
+        typer.echo("- None")
+    typer.echo("\nMissing Evidence:")
+    for value in finding.missing_evidence or ["None"]:
+        typer.echo(f"- {value}")
+    typer.echo(f"\nRemediation:\n{finding.remediation or 'None'}")
 
 
 @app.callback()
@@ -172,9 +212,10 @@ def analyze_apk(
         dir_okay=False,
         readable=True,
     ),
+    output_json: Path | None = typer.Option(None, '--output-json', dir_okay=False),
 ) -> None:
     """
-    Generate threat-informed investigation seeds from APK evidence.
+    Investigate APK evidence using retrieved context and security reasoning.
     """
 
     context, manifest, extraction = run_extraction(apk)
@@ -195,29 +236,53 @@ def analyze_apk(
 
     # Build the RAG knowledge index.
 
+    report = SecurityReport(
+        apk_metadata=APKMetadata(
+            path=str(context.apk_path), sha256=context.sha256,
+            file_size=getattr(context, "file_size", None),
+            package_name=getattr(context, "package_name", None),
+            version_name=getattr(context, "version_name", None),
+            version_code=getattr(context, "version_code", None),
+        ),
+        evidence_summary={name: len(getattr(extraction, name)) for name in (
+            "apis", "strings", "methods", "permissions", "capabilities"
+        )},
+        analysis_metadata=AnalysisMetadata(
+            reasoning_model=GeminiReasoningProvider.MODEL, seed_count=len(matches)
+        ),
+    )
+
     documents = KnowledgeDocumentLoader().load_json(
         Path("data/knowledge/android_security.json")
     )
 
-    embedding_provider = GeminiEmbeddingProvider(
-        dimension=768
-    )
+    retriever = None
+    try:
+        embedding_provider = GeminiEmbeddingProvider(dimension=768)
+        vector_store = QdrantVectorStore(
+            collection_name="sentinel_security_analysis",
+            dimension=768,
+            location=":memory:",
+        )
+        KnowledgeIndexer(
+            embedding_provider=embedding_provider,
+            vector_store=vector_store,
+        ).index(documents)
+        retriever = ThreatKnowledgeRetriever(
+            embedding_provider=embedding_provider,
+            vector_store=vector_store,
+        )
+    except Exception:
+        typer.echo("Security knowledge retrieval unavailable; continuing with APK evidence.")
+        report.analysis_metadata.errors.append("Knowledge index unavailable")
 
-    vector_store = QdrantVectorStore(
-        collection_name="sentinel_security_analysis",
-        dimension=768,
-        location=":memory:",
-    )
-
-    KnowledgeIndexer(
-        embedding_provider=embedding_provider,
-        vector_store=vector_store,
-    ).index(documents)
-
-    retriever = ThreatKnowledgeRetriever(
-        embedding_provider=embedding_provider,
-        vector_store=vector_store,
-    )
+    reasoning = None
+    try:
+        reasoning = SecurityReasoningAnalyzer(GeminiReasoningProvider())
+    except Exception as error:
+        detail = safe_reasoning_error(error)
+        typer.echo(f"Security reasoning unavailable: {detail}")
+        report.analysis_metadata.errors.append(detail)
 
     query_builder = RetrievalQueryBuilder()
 
@@ -251,73 +316,106 @@ def analyze_apk(
 
     if not matches:
         typer.echo("No investigation seeds identified.")
-        return
 
     for match in matches:
-        typer.echo("")
-        typer.echo(
-            f"[{match.knowledge_id}] "
-            f"{match.knowledge_name}"
-        )
-
-        typer.echo(f"Score: {match.score}")
-
-        matching_apis = [
-            api
-            for api in extraction.apis
-            if api.api_name in match.matched_apis
-        ]
-
-        if not matching_apis:
+        try:
+            typer.echo("")
             typer.echo(
-                "No API evidence available for behavior slicing."
+                f"[{match.knowledge_id}] "
+                f"{match.knowledge_name}"
             )
-            continue
 
-        # Prototype:
-        # use first matching API occurrence.
-        api = matching_apis[0]
+            typer.echo(f"Score: {match.score}")
 
-        behavior_slice = slice_builder.build_from_api(
-            api
-        )
+            matching_apis = [
+                api
+                for api in extraction.apis
+                if api.api_name in match.matched_apis
+            ]
 
-        if behavior_slice is None:
-            typer.echo(
-                "Unable to construct behavior slice."
+            if not matching_apis:
+                typer.echo(
+                    "No API evidence available for behavior slicing."
+                )
+                continue
+
+            # Prototype:
+            # use first matching API occurrence.
+            api = matching_apis[0]
+
+            behavior_slice = slice_builder.build_from_api(
+                api
             )
-            continue
 
-        typer.echo("")
-        typer.echo("Behavior Slice")
-        typer.echo(f"File: {behavior_slice.file}")
-        typer.echo(f"Line: {behavior_slice.line}")
-        typer.echo(f"Seed: {behavior_slice.seed}")
+            if behavior_slice is None:
+                typer.echo(
+                    "Unable to construct behavior slice."
+                )
+                continue
 
-        if behavior_slice.related_strings:
-            typer.echo("Related Strings:")
+            typer.echo("")
+            typer.echo("Behavior Slice")
+            typer.echo(f"File: {behavior_slice.file}")
+            typer.echo(f"Line: {behavior_slice.line}")
+            typer.echo(f"Seed: {behavior_slice.seed}")
 
-            for value in behavior_slice.related_strings:
-                typer.echo(f"  - {value}")
+            if behavior_slice.related_strings:
+                typer.echo("Related Strings:")
 
-        query = query_builder.build(
-            threat_match=match,
-            behavior_slice=behavior_slice,
-        )
+                for value in behavior_slice.related_strings:
+                    typer.echo(f"  - {value}")
 
-        retrieved = retriever.retrieve(
-            query=query,
-            limit=3,
-        )
-
-        typer.echo("")
-        typer.echo("Retrieved Security Knowledge")
-
-        for result in retrieved:
-            typer.echo(
-                f"  [{result.score:.4f}] "
-                f"{result.title}"
+            query = query_builder.build(
+                threat_match=match,
+                behavior_slice=behavior_slice,
             )
+
+            retrieved = []
+            if retriever is not None:
+                try:
+                    retrieved = retriever.retrieve(query=query, limit=3)
+                except Exception:
+                    typer.echo("Security knowledge retrieval failed for this seed.")
+                    report.analysis_metadata.errors.append(f"{match.knowledge_id}: retrieval failed")
+
+            typer.echo("")
+            typer.echo("Retrieved Security Knowledge")
+
+            for result in retrieved:
+                typer.echo(
+                    f"  [{result.score:.4f}] "
+                    f"{result.title}"
+                )
+
+            if reasoning is not None:
+                try:
+                    assessment = reasoning.analyze(match, behavior_slice, retrieved)
+                    validation = EvidenceValidator().validate(match, behavior_slice, retrieved, assessment)
+                    finding = FindingBuilder().build(match, behavior_slice, retrieved, assessment, validation)
+                    report.validated_findings.append(finding)
+                except Exception as error:
+                    # Do not print raw provider errors or unvalidated model output.
+                    detail = safe_reasoning_error(error)
+                    typer.echo(f"Security reasoning unavailable: {detail}")
+                    report.analysis_metadata.errors.append(f"{match.knowledge_id}: {detail}")
+                    continue
+
+
+        except Exception:
+            typer.echo("Investigation seed failed; continuing analysis.")
+            report.analysis_metadata.errors.append(f"{match.knowledge_id}: seed failed")
+
+    typer.echo("\n# Validated Findings")
+    if not report.validated_findings:
+        typer.echo("No validated findings.")
+    for finding in report.validated_findings:
+        render_validated_finding(finding)
+
+    if report.analysis_metadata.errors:
+        report.analysis_metadata.status = "partial"
+    if output_json is not None:
+        report.write_json(output_json)
+        typer.echo(f"\nJSON report: {output_json}")
 
 
 if __name__ == "__main__":
