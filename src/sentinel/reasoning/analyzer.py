@@ -7,7 +7,7 @@ from sentinel.threat_intel.models import ThreatMatch
 
 
 class SecurityReasoningAnalyzer:
-    """Validate response structure and reference provenance, not claim semantics."""
+    """Validate response structure; the validation layer checks evidence provenance."""
 
     def __init__(self, provider: LLMProvider) -> None:
         self.provider = provider
@@ -23,11 +23,4 @@ class SecurityReasoningAnalyzer:
         response = self.provider.generate_structured(
             prompt, response_schema=SecurityReasoningResult.model_json_schema()
         )
-        result = SecurityReasoningResult.model_validate_json(response)
-        apk_refs = self.prompt_builder.apk_evidence(threat_match, behavior_slice)
-        knowledge_refs = {f"knowledge:{item.chunk_id}" for item in knowledge}
-        if not set(result.apk_evidence_refs).issubset(apk_refs):
-            raise ValueError("Unknown APK evidence reference")
-        if not set(result.knowledge_refs).issubset(knowledge_refs):
-            raise ValueError("Unknown external knowledge reference")
-        return result
+        return SecurityReasoningResult.model_validate_json(response)

@@ -1,4 +1,15 @@
 from pydantic import BaseModel, ConfigDict, Field
+from typing import Literal
+
+
+class EvidenceClaim(BaseModel):
+    """A checkable text-presence claim or an explicitly unverified flow claim."""
+
+    model_config = ConfigDict(extra="forbid")
+    scope: Literal["LOCAL", "APK", "EXTERNAL"]
+    reference: str
+    value: str = Field(min_length=1)
+    kind: Literal["PRESENCE", "FLOW"] = "PRESENCE"
 
 
 class SecurityReasoningResult(BaseModel):
@@ -13,3 +24,4 @@ class SecurityReasoningResult(BaseModel):
     missing_evidence: list[str]
     remediation: str | None
     reasoning_summary: str
+    claims: list[EvidenceClaim] = Field(default_factory=list)

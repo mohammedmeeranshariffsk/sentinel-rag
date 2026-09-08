@@ -91,7 +91,7 @@ def test_analyzer_returns_validated_result_using_fake_provider(inputs, response)
     provider = FakeProvider(response)
     result = SecurityReasoningAnalyzer(provider).analyze(*inputs)
     assert isinstance(result, SecurityReasoningResult)
-    assert result.model_dump() == response
+    assert result.model_dump(exclude={"claims"}) == response
     assert len(provider.calls) == 1
     assert provider.calls[0][1] == SecurityReasoningResult.model_json_schema()
     assert provider.calls[0][0] == ReasoningPromptBuilder().build(*inputs)
@@ -128,9 +128,13 @@ def test_insufficient_evidence_is_accepted(response):
     ("knowledge_refs", ["apk:behavior_slice"]),
 ])
 def test_unknown_or_cross_domain_references_are_rejected(inputs, response, field, refs):
+    from sentinel.validation.validator import EvidenceValidator
+
     response[field] = refs
-    with pytest.raises(ValueError, match="reference"):
-        SecurityReasoningAnalyzer(FakeProvider(response)).analyze(*inputs)
+    result = SecurityReasoningAnalyzer(FakeProvider(response)).analyze(*inputs)
+    validation = EvidenceValidator().validate(*inputs, result)
+    assert validation.unsupported_references == refs
+    assert validation.evidence_state.value == "NOT_VERIFIABLE_FROM_APK"
 
 
 def test_extra_reasoning_fields_are_rejected(inputs, response):
