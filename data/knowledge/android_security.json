@@ -1,0 +1,32 @@
+[
+  {
+    "document_id": "ANDROID-CMD-001",
+    "title": "Android Process and Shell Command Execution",
+    "content": "Android applications can execute operating system commands using APIs such as Runtime.exec. Security analysis should inspect the command being executed and surrounding context. Execution involving shell binaries, su, root-related commands, downloaded payloads, chmod, or other system utilities may warrant investigation. Runtime.exec alone does not establish malicious behavior because legitimate applications may also execute processes.",
+    "source": "SentinelRAG curated Android security knowledge",
+    "metadata": {
+      "category": "command_execution",
+      "platform": "android"
+    }
+  },
+  {
+    "document_id": "ANDROID-ACCESS-001",
+    "title": "Android Accessibility Service Abuse",
+    "content": "Android malware may abuse Accessibility Services to inspect interface content and automate user interface actions. Relevant investigation signals can include accessibility node inspection, performAction, performGlobalAction, dispatchGesture, getRootInActiveWindow, credential collection behavior, and interaction with other applications. Accessibility capability alone does not prove malicious behavior and must be correlated with surrounding application behavior.",
+    "source": "SentinelRAG curated Android security knowledge",
+    "metadata": {
+      "category": "accessibility_abuse",
+      "platform": "android"
+    }
+  },
+  {
+    "document_id": "ANDROID-PERSIST-001",
+    "title": "Android Boot Persistence",
+    "content": "Android applications may receive the BOOT_COMPLETED broadcast and execute code after device startup. Persistence investigation should correlate android.permission.RECEIVE_BOOT_COMPLETED with a registered broadcast receiver and subsequent execution such as starting a service or scheduling background work. The existence of an onReceive method alone is insufficient evidence of boot persistence.",
+    "source": "SentinelRAG curated Android security knowledge",
+    "metadata": {
+      "category": "persistence",
+      "platform": "android"
+    }
+  }
+]
