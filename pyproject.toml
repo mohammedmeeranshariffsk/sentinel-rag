@@ -16,6 +16,8 @@ dependencies = [
     "pyyaml",
     "python-dotenv",
     "requests",
+    "google-genai>=2.22.0",
+    "qdrant-client>=1.19.0",
 ]
 
 [project.optional-dependencies]
@@ -32,3 +34,4 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+

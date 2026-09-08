@@ -1,1215 +1,444 @@
-# SentinelRAG — Project Plan
+# SentinelRAG — Prototype Execution Plan
 
-## 1. Project Objective
+## Goal
 
-SentinelRAG is an evidence-grounded, threat-informed Android security analysis platform that combines:
+Build an evidence-grounded Android security intelligence system that combines Android reverse engineering, program analysis, threat intelligence, RAG, and LLM reasoning.
 
-* Android static analysis
-* continuously updated threat intelligence
-* security-focused code/context extraction
-* call-graph and data-flow analysis
-* Retrieval-Augmented Generation (RAG)
-* bounded agentic investigation
-* LLM reasoning
-* evidence validation
-* malware behavior correlation
+The prototype must demonstrate:
 
-The goal is **not** to build another regex-heavy Android vulnerability scanner.
+```text
+APK
+ ↓
+Reverse Engineering
+ ↓
+Evidence Extraction
+ ↓
+Threat-Informed Investigation
+ ↓
+Behavior Context
+ ↓
+Security RAG
+ ↓
+LLM Reasoning
+ ↓
+Evidence Validation
+ ↓
+Structured Security Report
+```
 
-The goal is to build a system capable of using current Android malware/security knowledge to determine **where to investigate an APK**, automatically gather the relevant code context, and allow an LLM to reason over that evidence.
+## Core Architecture Principle
 
-The system must distinguish:
+> Threat intelligence determines where SentinelRAG should look; program analysis determines what is actually present; RAG supplies relevant external knowledge; the LLM reasons over the combined evidence.
 
-> What threat intelligence suggests we should look for.
-
-from:
-
-> What the APK actually contains.
-
-from:
-
-> What the collected evidence most plausibly means.
+No individual signal is automatically a vulnerability or malware verdict.
 
 ---
 
-# 2. Core Design Principle
+# Phase 1 — APK Foundation
 
-SentinelRAG follows this principle:
+Status: COMPLETE
 
-> **Threat intelligence determines where SentinelRAG should look; program analysis determines what is actually present; the LLM determines what the collected evidence most plausibly means.**
+Implemented:
 
-A deterministic rule match is not required before semantic or agentic investigation can occur.
-
-Likewise, an LLM hypothesis is not sufficient to claim malicious behavior without APK evidence.
-
----
-
-# 3. Target Architecture
-
-```text
-                         INTERNET
-                            │
-                            ▼
-                 Threat Research Pipeline
-                            │
-                  trusted Android sources
-                            │
-                            ▼
-                Threat Intelligence Extraction
-           ┌────────────────┼─────────────────┐
-           │                │                 │
-        APIs             Strings        Permissions
-           │                │                 │
-     Method names       Techniques       Components
-           │                │                 │
-           └────────────────┼─────────────────┘
-                            │
-                            ▼
-                  Threat Knowledge Base
-                ┌───────────┴───────────┐
-                │                       │
-         Structured Intel         Knowledge RAG
-                │                       │
-       techniques/APIs/etc.       reports/chunks
-                │                       │
-                └───────────┬───────────┘
-                            │
-
-==============================================================
-
-                         NEW APK
-                            │
-                            ▼
-                     APK Inspection
-                            │
-                            ▼
-                      Decompilation
-                   Apktool + JADX
-                            │
-                            ▼
-                 Static Evidence Extraction
-        ┌────────────┬────────────┬─────────────┐
-        │            │            │             │
-     Manifest      Strings      APIs        Methods/classes
-        │            │            │             │
-        └────────────┴──────┬─────┴─────────────┘
-                            │
-                            ▼
-                  Capability Discovery
-                            │
-               Generic security catalog
-                         +
-                Current threat knowledge
-                            │
-                            ▼
-                 Investigation Seed Set
-                            │
-                            ▼
-                  Context Expansion
-             ┌──────────────┼──────────────┐
-             │              │              │
-           Xrefs         Call graph     Data flow
-             │              │              │
-             └──────────────┼──────────────┘
-                            │
-                            ▼
-                Security Behavior Slices
-                            │
-                  ┌─────────┴─────────┐
-                  │                   │
-                  ▼                   ▼
-             APK Retrieval       Threat RAG
-                  │                   │
-                  └─────────┬─────────┘
-                            │
-                            ▼
-                  Agentic Investigation
-                            │
-                 request more evidence
-                            │
-                     investigation loop
-                            │
-                            ▼
-                       LLM Reasoning
-                            │
-                            ▼
-                    Evidence Validator
-                            │
-                            ▼
-                  Behavior Correlation
-                            │
-                            ▼
-                       Final Report
-```
+* APK ingestion
+* SHA256
+* workspace
+* Apktool
+* JADX
+* manifest parsing
+* package-aware source resolution
 
 ---
 
-# 4. Architectural Components
+# Phase 2 — Static Evidence Extraction
 
-## 4.1 APK Inspection
+Status: COMPLETE
 
-Responsibilities:
+Implemented:
 
-* validate APK input
-* calculate SHA-256
-* determine file size
-* create analysis workspace
-* maintain analysis context
-
-Existing implementation:
-
-```text
-src/sentinel/apk/
-├── context.py
-└── inspector.py
-```
-
-Status: IMPLEMENTED
-
----
-
-# 4.2 Decompilation
-
-Responsibilities:
-
-* Apktool extraction
-* AndroidManifest.xml recovery
-* Smali recovery
-* JADX Java source recovery
-* tolerate partially successful JADX runs when usable source exists
-
-Existing implementation:
-
-```text
-src/sentinel/decompiler/
-└── pipeline.py
-```
-
-Status: IMPLEMENTED
-
----
-
-# 4.3 Manifest Analysis
-
-Responsibilities:
-
-Extract objective Android application facts including:
-
-* package
-* permissions
-* activities
-* services
-* receivers
-* providers
-* exported state
-* intent filters
-* deep links
-* application flags
-* network security configuration
-
-Existing implementation:
-
-```text
-src/sentinel/manifest/
-└── analyzer.py
-```
-
-Status: IMPLEMENTED
-
----
-
-# 4.4 Static Evidence Extraction
-
-This becomes a major Week-1 component.
-
-Proposed structure:
-
-```text
-src/sentinel/extraction/
-├── models.py
-├── api_extractor.py
-├── string_extractor.py
-├── method_extractor.py
-├── permission_extractor.py
-└── capability_extractor.py
-```
-
-The extraction layer collects facts without declaring them malicious.
-
-Examples:
-
-```text
-API_CALL
-DexClassLoader
-
-API_CALL
-getRootInActiveWindow
-
-STRING
-/system/bin/sh
-
-PERMISSION
-android.permission.RECEIVE_BOOT_COMPLETED
-
-METHOD
-decryptPayload
-
-COMPONENT
-AccessibilityService
-```
-
-These become investigation evidence.
-
----
-
-# 5. Security Capability Catalog
-
-SentinelRAG maintains a generic security capability catalog.
-
-Initial capabilities:
-
-* Accessibility
-* dynamic code loading
-* reflection
-* native code loading
-* process execution
-* networking
-* cryptography
-* SMS
-* contacts
-* notifications
-* clipboard
-* screen capture
-* overlays
-* WebView
-* package installation
-* filesystem operations
-* device administration
-* persistence
-* IPC
-* microphone
-* camera
-* location
-
-Capabilities do not imply maliciousness.
-
-They determine where deeper analysis may be valuable.
-
-Example:
-
-```text
-DexClassLoader
-      ↓
-capability = DYNAMIC_CODE_LOADING
-      ↓
-investigation seed
-```
-
-not:
-
-```text
-DexClassLoader
-      ↓
-malware = true
-```
-
----
-
-# 6. Threat Intelligence Pipeline
-
-SentinelRAG will maintain an independent threat-knowledge pipeline.
-
-Its purpose is to continuously learn what Android malware and security research currently consider relevant.
-
-Sources may eventually include:
-
-* Android malware research
-* security vendor reports
-* OWASP MASVS / MASTG
-* CWE
-* Android security documentation
-* MITRE ATT&CK
-* public security research
-* Android Security Bulletins
-* trusted malware-analysis publications
-
-Internet research must be separated from APK analysis.
-
-The APK agent should analyze against a known threat-intelligence snapshot.
-
-Example:
-
-```text
-Threat KB version:
-2026-09-08
-```
-
-Benefits:
-
-* reproducibility
-* source provenance
-* auditability
-* reduced prompt-injection exposure
-* controlled knowledge updates
-
----
-
-# 7. Threat Intelligence Data Model
-
-Threat reports should produce both:
-
-1. original RAG chunks
-2. structured threat intelligence
-
-Example:
-
-```json
-{
-  "family": "ExampleBanker",
-  "platform": "android",
-
-  "techniques": [
-    "accessibility_abuse",
-    "credential_collection",
-    "dynamic_loading",
-    "c2"
-  ],
-
-  "apis": [
-    "getRootInActiveWindow",
-    "performAction",
-    "DexClassLoader"
-  ],
-
-  "permissions": [
-    "android.permission.INTERNET",
-    "android.permission.RECEIVE_BOOT_COMPLETED"
-  ],
-
-  "method_patterns": [
-    "loadPayload",
-    "decryptConfig"
-  ],
-
-  "strings": [],
-
-  "behavior_relationships": [
-    {
-      "source": "AccessibilityNodeInfo.getText",
-      "operation": "data_collection",
-      "sink": "network"
-    }
-  ],
-
-  "source_url": "...",
-  "published_at": "...",
-  "confidence": 0.90
-}
-```
-
-Structured intelligence guides investigation.
-
-Original source chunks provide RAG context.
-
----
-
-# 8. Investigation Seed Generation
-
-SentinelRAG must not depend exclusively on known malware indicators.
-
-Seed selection uses:
-
-```text
-Generic Security Capability Catalog
-                  +
-Current Threat Intelligence
-                  +
-APK Observations
-                  ↓
-         Investigation Seeds
-```
-
-Example APK observations:
-
-```text
-DexClassLoader
-Cipher.doFinal
-BOOT_COMPLETED
-OkHttpClient
-```
-
-Possible generated priorities:
-
-```text
-Dynamic loading          HIGH
-Persistence              MEDIUM
-Encrypted networking     MEDIUM
-```
-
-These are investigation targets, not findings.
-
----
-
-# 9. Program Analysis
-
-## Call Graph
-
-Answers:
-
-> Which methods call which methods?
-
-Example:
-
-```text
-onAccessibilityEvent()
-        ↓
-collectText()
-        ↓
-encrypt()
-        ↓
-send()
-```
-
----
-
-## Cross References
-
-Answers:
-
-> Where is this API, method, string, field or class referenced?
-
-Example:
-
-```text
-"/system/bin/sh"
-       ↓
-xrefs
-       ↓
-executeCommand()
-```
-
----
-
-## Data Flow
-
-Answers:
-
-> Where does information originate and where does it eventually go?
-
-Example:
-
-```text
-AccessibilityNodeInfo.getText()
-              ↓
-          credential
-              ↓
-          encrypt()
-              ↓
-         requestBody
-              ↓
-          HTTP POST
-```
-
-Data flow is important because call relationships alone do not establish security impact.
-
----
-
-# 10. Security Behavior Slice
-
-A central SentinelRAG abstraction is the:
-
-# Security Behavior Slice
-
-A behavior slice contains the minimum relevant code context surrounding a suspicious capability.
-
-Example:
-
-```text
-Seed:
-getRootInActiveWindow()
-
-Manifest:
-BIND_ACCESSIBILITY_SERVICE
-
-Caller:
-onAccessibilityEvent()
-
-Flow:
-AccessibilityNodeInfo.getText()
-      ↓
-collect()
-      ↓
-encrypt()
-      ↓
-upload()
-
-Strings:
-"password"
-"/device/update"
-
-Network:
-OkHttpClient
-```
-
-Instead of sending entire APK source code to the LLM, SentinelRAG sends bounded behavior slices.
-
-Benefits:
-
-* lower token usage
-* less noise
-* improved reasoning
-* stronger evidence
-* clearer reporting
-
----
-
-# 11. Dual Retrieval Architecture
-
-SentinelRAG uses two forms of retrieval.
-
-## APK Retrieval
-
-Searches evidence within the application:
-
-```text
-methods
-classes
-strings
-API calls
-xrefs
-behavior slices
-```
-
-Example question:
-
-> Where does text obtained from AccessibilityNodeInfo eventually flow?
-
----
-
-## Threat Knowledge RAG
-
-Searches external security knowledge:
-
-```text
-malware reports
-OWASP
-CWE
-Android documentation
-ATT&CK
-research
-```
-
-Example question:
-
-> How is Android Accessibility commonly abused by banking malware?
-
-These two retrieval contexts are kept conceptually separate.
-
----
-
-# 12. Agentic Investigation
-
-The LLM does not directly invent APK evidence.
-
-The agent can request tools such as:
-
-```text
-search_api()
-search_string()
-find_xrefs()
-inspect_method()
-find_callers()
-find_callees()
-trace_data_flow()
-inspect_manifest_component()
-search_apk_code()
-retrieve_threat_intel()
-retrieve_security_knowledge()
-```
-
-Example:
-
-```text
-Observation:
-DexClassLoader detected
-
-Agent:
-What file is being loaded?
-
-Tool:
-trace argument provenance
-
-Evidence:
-payload.dex
-
-Agent:
-Who creates payload.dex?
-
-Tool:
-find writers/xrefs
-
-Evidence:
-downloadPayload()
-
-Agent:
-Where is payload downloaded from?
-
-Tool:
-trace network flow
-
-Evidence:
-HTTP response → payload.dex
-
-Agent:
-How is payload executed?
-
-Tool:
-inspect callees
-
-Evidence:
-DexClassLoader → reflection
-```
-
-The agent therefore performs bounded iterative investigation rather than simply producing a single LLM response.
-
----
-
-# 13. LLM Responsibilities
-
-The LLM may:
-
-* interpret behavior
-* prioritize hypotheses
-* determine which evidence is missing
-* select analysis tools
-* correlate observations
-* explain security significance
-* compare behavior against malware intelligence
-* produce remediation/explanation
-* estimate confidence
-
-The LLM must NOT:
-
-* invent API usage
-* invent methods
-* invent permissions
-* invent strings
-* invent call relationships
-* invent data flow
-* declare malware solely because an API exists
-
----
-
-# 14. Evidence Model
-
-Initial evidence states:
-
-## OBSERVED
-
-Directly present in APK artifacts.
-
-Examples:
-
-```text
-DexClassLoader referenced.
-INTERNET permission declared.
-URL string exists.
-```
-
-## INFERRED
-
-Derived from deterministic program analysis.
-
-Example:
-
-```text
-network response
-→ file
-→ DexClassLoader
-```
-
-## SEMANTIC_SUSPECT
-
-LLM or semantic analysis identified suspicious behavior requiring additional validation.
-
-## CORRELATED
-
-Multiple independent APK observations correspond strongly to known malicious techniques or malware behavior.
-
-## NOT_VERIFIABLE_FROM_APK
-
-The claim requires runtime, network, device, firmware or external evidence.
-
----
-
-# 15. Existing Deterministic Rules
-
-Existing rules will not be deleted.
-
-They become optional **high-confidence evidence sensors**.
-
-Existing:
-
-```text
-SQLI-001
-ACCESS-001 prototype
-```
-
-Examples of deterministic checks worth retaining:
-
-* debuggable
-* insecure exported components
-* cleartext configuration
-* high-confidence source → sink SQL injection
-* obvious hardcoded secrets
-* manifest misconfiguration
-
-We will NOT spend Week 1 writing dozens of regex malware rules.
-
----
-
-# 16. Malware Attribution Policy
-
-SentinelRAG must avoid unsupported family attribution.
-
-Do:
-
-```text
-Behavior resembles techniques documented for Vultur.
-```
-
-Do not automatically say:
-
-```text
-This APK is Vultur.
-```
-
-Family attribution requires multiple independent indicators and adequate supporting evidence.
-
-Preferred states:
-
-```text
-Observed technique
-Possible malicious behavior
-Correlated malware behavior
-Family-like behavior
-Confirmed family
-```
-
-The final state requires substantially stronger evidence than static similarity.
-
----
-
-# 17. One-Week Prototype Scope
-
-The Week-1 objective is NOT a production malware scanner.
-
-The objective is one compelling end-to-end vertical slice.
-
-By the end of the week SentinelRAG should demonstrate:
-
-```text
-Threat knowledge
-      ↓
-security-relevant seed selection
-      ↓
-APK context extraction
-      ↓
-behavior slice
-      ↓
-RAG retrieval
-      ↓
-LLM analysis
-      ↓
-evidence-backed conclusion
-```
-
----
-
-# 18. Seven-Day Execution Plan
-
-## Day 1 — Architecture Refactor + Evidence Extraction
-
-Deliver:
-
-```text
-src/sentinel/extraction/
-```
-
-Implement:
-
-* shared evidence models
 * API extraction
 * string extraction
 * method extraction
-* manifest evidence conversion
-* capability catalog
-
-CLI target:
-
-```bash
-sentinel extract sample.apk
-```
+* permission extraction
+* capability discovery
 
 Output:
 
 ```text
-APIs
-Strings
-Permissions
-Methods
-Capabilities
+ExtractionResult
+├── APIs
+├── Strings
+├── Methods
+├── Permissions
+└── Capabilities
 ```
-
-Quality gate:
-
-* existing tests remain green
-* new extraction unit tests
-* AndroGoat successfully extracts evidence
 
 ---
 
-## Day 2 — Threat Intelligence Knowledge Model
+# Phase 3 — Threat Intelligence
 
-Implement:
+Status: COMPLETE FOR PROTOTYPE
 
-```text
-src/sentinel/threat_intel/
-├── models.py
-├── loader.py
-├── normalizer.py
-└── knowledge_base.py
-```
+Implemented:
 
-Use a small curated prototype corpus covering techniques such as:
+* ThreatKnowledge schema
+* structured threat knowledge
+* ThreatKnowledgeBase
+* ThreatMatcher
+* ranked investigation seeds
 
-* accessibility abuse
-* dynamic loading
-* C2
-* persistence
-* credential collection
-
-Create structured records for several malware behaviors.
-
-Quality gate:
+Important:
 
 ```text
-APK capability
-→ matching threat knowledge
+Threat Match ≠ Finding
 ```
 
-works locally.
+A match only determines what deserves further investigation.
 
 ---
 
-## Day 3 — RAG Pipeline
+# Phase 4 — Behavior Context
 
-Implement:
+Status: INITIAL VERSION COMPLETE
 
-```text
-src/sentinel/retrieval/
-├── embeddings.py
-├── threat_retriever.py
-└── models.py
-```
+Implemented:
 
-Pipeline:
-
-```text
-documents
-↓
-parse
-↓
-chunk
-↓
-metadata
-↓
-embeddings
-↓
-vector store
-```
-
-Initial vector store:
-
-```text
-Qdrant or existing selected store
-```
-
-Quality gate:
-
-Security queries return relevant source chunks with metadata/provenance.
-
----
-
-## Day 4 — Context Expansion / Behavior Slices
-
-Implement first practical version of:
-
-```text
-src/sentinel/program_analysis/
-├── xrefs.py
-├── call_context.py
-└── behavior_slice.py
-```
-
-Do NOT attempt perfect whole-program static analysis in Week 1.
-
-Prototype should support:
-
-* locate seed
-* surrounding method
-* references
-* callers where feasible
-* callees where feasible
-* related strings
-* related manifest context
+* BehaviorSlice
 * bounded source context
+* related strings
 
-Quality gate:
+Next improvements after the vertical slice:
 
-Given a security-sensitive API, SentinelRAG produces a useful evidence bundle.
+* enclosing-method extraction
+* xrefs
+* callers/callees
+* manifest relationships
+* basic data flow
+
+Do not implement a perfect whole-program call graph during the prototype.
 
 ---
 
-## Day 5 — LLM Security Reasoning
+# Phase 5 — Security RAG
 
-Implement:
+Status: ACTIVE
+
+Implemented:
+
+* KnowledgeDocument
+* KnowledgeChunk
+* chunking
+* Gemini embeddings
+* 768-dimensional vectors
+* Qdrant
+* indexing
+* semantic Top-K retrieval
+
+Validated:
 
 ```text
-src/sentinel/reasoning/
-├── models.py
-├── prompts.py
-├── analyzer.py
-└── validator.py
+Runtime.exec + /system/bin/su
 ```
+
+retrieves command-execution security knowledge as the highest-ranked result.
+
+## Remaining
+
+### 5.1 APK → RAG Integration
+
+Automatically construct the retrieval query from:
+
+* threat investigation seed
+* matching APK API
+* BehaviorSlice
+* related strings
+* capability
+* relevant manifest evidence
+
+Remove hardcoded test queries.
+
+### 5.2 Knowledge Ingestion
+
+Create a small provenance-aware corpus from authoritative Android security and threat sources.
+
+Each knowledge item should retain:
+
+* source
+* title
+* source URL
+* publication date when available
+* retrieved/ingested date
+* category
+* threat family when applicable
+* techniques
+* chunk ID
+* document ID
+
+### 5.3 Retrieval Quality
+
+After the vertical slice works:
+
+* similarity threshold
+* metadata filtering
+* deduplication
+* optional reranking
+* retrieval evaluation
+
+---
+
+# Phase 6 — LLM Security Reasoning
+
+Status: NOT STARTED
+
+Create an LLM provider abstraction.
 
 Input:
 
 ```text
-APK evidence
+Investigation Seed
 +
-behavior slice
+APK Behavior Slice
 +
-retrieved threat knowledge
+Manifest Evidence
++
+Retrieved Threat Knowledge
 ```
 
-Output schema:
+Structured output should include:
 
-```json
-{
-  "hypothesis": "...",
-  "behavior": "...",
-  "maliciousness": "...",
-  "confidence": 0.0,
-  "evidence_refs": [],
-  "missing_evidence": [],
-  "threat_context": [],
-  "reasoning_summary": "..."
-}
+```text
+hypothesis
+behavior
+security_assessment
+confidence
+apk_evidence_refs
+knowledge_refs
+missing_evidence
+remediation
+reasoning_summary
 ```
 
-Every conclusion must reference APK evidence.
+The model must distinguish:
+
+* observed facts
+* inferred behavior
+* external knowledge
+* unsupported hypotheses
 
 ---
 
-## Day 6 — Bounded Agentic Investigation
+# Phase 7 — Evidence Validation
+
+Status: NOT STARTED
+
+Validate LLM output against collected APK evidence.
+
+Reject or downgrade unsupported claims.
+
+Evidence states:
+
+```text
+OBSERVED
+INFERRED
+SEMANTIC_SUSPECT
+CORRELATED
+NOT_VERIFIABLE_FROM_APK
+```
+
+RAG similarity never becomes `OBSERVED`.
+
+---
+
+# Phase 8 — Bounded Agentic Investigation
+
+Status: NOT STARTED
+
+After basic LLM reasoning works, allow the reasoner to request additional evidence through bounded tools.
+
+Candidate tools:
+
+```text
+search_api
+search_string
+inspect_method
+find_xrefs
+inspect_manifest_component
+retrieve_threat_intel
+```
+
+Constraints:
+
+* maximum iterations
+* explicit tool allowlist
+* evidence references
+* no unrestricted filesystem access
+* no unrestricted internet browsing during APK analysis
+
+LangGraph is optional and should only be introduced if orchestration complexity justifies it.
+
+---
+
+# Phase 9 — Reporting
+
+Status: NOT STARTED
+
+Produce:
+
+### CLI
+
+Concise analyst-oriented findings.
+
+### JSON
+
+Machine-readable evidence-grounded report.
+
+HTML can follow after the JSON contract is stable.
+
+---
+
+# Prototype Acceptance Criteria
+
+The prototype is complete when one command can perform:
+
+```text
+sentinel analyze <apk>
+```
+
+and execute:
+
+```text
+APK inspection
+✓
+
+decompilation
+✓
+
+manifest analysis
+✓
+
+evidence extraction
+✓
+
+capability discovery
+✓
+
+threat matching
+✓
+
+behavior slicing
+✓
+
+RAG retrieval
+[IN PROGRESS]
+
+LLM reasoning
+[TODO]
+
+evidence validation
+[TODO]
+
+structured report
+[TODO]
+```
+
+---
+
+# Current Test APK
+
+Primary demonstration target:
+
+```text
+AndroGoat.apk
+```
+
+Known extraction baseline:
+
+```text
+APIs:         688
+Strings:      479
+Methods:      172
+Permissions:  3
+Capabilities: 1
+```
+
+Known high-value investigation seed:
+
+```text
+Process and Command Execution
+
+Evidence:
+exec
+/system/bin/su
+```
+
+---
+
+# Current Test Baseline
+
+```text
+20 passed
+```
+
+Tests must remain independent of external Gemini API availability unless explicitly marked as integration tests.
+
+---
+
+# Current Next Step
 
 Implement:
 
 ```text
-src/sentinel/investigation/
-├── state.py
-├── tools.py
-├── planner.py
-└── investigator.py
+Real APK
+ ↓
+Threat Match
+ ↓
+Matching APK Evidence
+ ↓
+Behavior Slice
+ ↓
+Automatic RAG Query
+ ↓
+Gemini Embedding
+ ↓
+Qdrant
+ ↓
+Top-K Security Knowledge
 ```
 
-Initial tools:
-
-* search API
-* search string
-* inspect method
-* xrefs
-* inspect manifest
-* retrieve threat knowledge
-* retrieve additional source context
-
-Agent loop:
-
-```text
-Hypothesis
-↓
-Need more evidence?
-├── yes → tool
-│         ↓
-│     update evidence
-│         ↓
-│     reconsider
-│
-└── no
-    ↓
-conclusion
-```
-
-Hard-cap number of investigation iterations.
-
-LangGraph may be introduced here if justified, but the system must not depend on it prematurely.
+Then proceed directly to LLM reasoning.
 
 ---
 
-## Day 7 — Integration + Report + Demo
+# Explicit Non-Goals for Current Prototype
 
-CLI:
+Do not implement yet:
 
-```bash
-sentinel analyze sample.apk
-```
-
-Expected pipeline:
-
-```text
-APK
-↓
-extract
-↓
-threat match
-↓
-seed
-↓
-context expansion
-↓
-RAG
-↓
-agentic investigation
-↓
-LLM reasoning
-↓
-validation
-↓
-report
-```
-
-Deliver:
-
-* JSON report
-* readable terminal report
-* README architecture
-* demo screenshots/output
-* tests
-* clean Git history
-* example AndroGoat analysis
-* synthetic malicious behavior example if necessary
+* hundreds of vulnerability rules
+* perfect AST analysis
+* full interprocedural taint
+* perfect whole-program call graph
+* dynamic analysis
+* Frida
+* exploit generation
+* native RE
+* multi-agent architecture
+* Kubernetes
+* distributed workers
+* production dashboard
 
 ---
 
-# 19. Week-1 Non-Goals
+# Post-Prototype Roadmap
 
-Do NOT attempt:
+After the vertical slice:
 
-* perfect call graph
-* perfect interprocedural taint analysis
-* full malware-family classifier
-* hundreds of deterministic rules
-* production distributed workers
-* cloud deployment
-* complete live threat crawling
-* dynamic sandbox analysis
-* native-code reverse engineering
-* firmware-level analysis
-* full multi-agent architecture
-* autonomous unrestricted internet browsing
-
-These come after the vertical slice works.
-
----
-
-# 20. Week-1 Definition of Done
-
-SentinelRAG Week-1 prototype is successful when:
-
-1. An APK can be inspected and decompiled.
-
-2. Manifest, API, string and method evidence is extracted.
-
-3. Security capabilities are identified.
-
-4. Threat knowledge can influence investigation priority.
-
-5. At least one suspicious capability produces a bounded behavior slice.
-
-6. Relevant security/threat information is retrieved through RAG.
-
-7. An LLM analyzes the APK evidence plus retrieved knowledge.
-
-8. The LLM conclusion explicitly references APK evidence.
-
-9. Missing evidence is acknowledged instead of hallucinated.
-
-10. The agent can request at least one additional piece of APK context.
-
-11. Existing SQLI detection remains functional.
-
-12. All automated tests pass.
-
----
-
-# 21. Post-Prototype Roadmap
-
-After Week 1:
-
-## Phase 2
-
-* improved call graphs
-* better xrefs
-* data-flow analysis
-* code embeddings
-* APK semantic retrieval
-
-## Phase 3
-
-* automated threat-research pipeline
-* source validation
-* threat-intel versioning
-* provenance tracking
-* scheduled updates
-
-## Phase 4
-
-* malware behavior correlation
-* multiple-family profiles
-* ATT&CK mapping
-* confidence calibration
-
-## Phase 5
-
-* evaluation framework
-* malicious/benign APK benchmark corpus
-* precision/recall measurement
-* false-positive/false-negative analysis
-
-## Phase 6
-
-* production API
-* FastAPI
-* workers
-* observability
-* Phoenix/OpenTelemetry
-* secure sandboxing
-
----
-
-# 22. Final Product Vision
-
-SentinelRAG should ultimately answer:
-
-> Based on current Android security and malware knowledge, what areas of this APK deserve investigation?
-
-Then:
-
-> What does the APK actually do in those areas?
-
-And finally:
-
-> What security or malicious behavior is best supported by the collected evidence?
-
-That is the core SentinelRAG mission.
+1. improve xrefs and data flow
+2. expand provenance-aware security corpus
+3. improve retrieval evaluation
+4. add deterministic high-confidence sensors where useful
+5. add quantitative evaluation
+6. add observability with Phoenix/OpenTelemetry
+7. expose platform through FastAPI
+8. add CI/CD
+9. add SARIF/HTML reporting
+10. benchmark against representative vulnerable and benign APKs
