@@ -4,6 +4,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from sentinel.findings.models import SecurityFinding
+from sentinel.analysis.artifact_coverage import ArtifactCoverage
 from sentinel.profiles.models import ProfileAnalysis
 
 
@@ -35,6 +36,7 @@ class AnalysisMetadata(BaseModel):
 class SecurityReport(BaseModel):
     apk_metadata: APKMetadata
     evidence_summary: dict[str, int]
+    artifact_coverage: ArtifactCoverage | None = None
     validated_findings: list[SecurityFinding] = Field(default_factory=list)
     profile_analyses: list[ProfileAnalysis] = Field(default_factory=list)
     analysis_metadata: AnalysisMetadata

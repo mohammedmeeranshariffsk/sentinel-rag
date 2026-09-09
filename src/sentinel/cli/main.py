@@ -10,6 +10,7 @@ load_dotenv(PROJECT_ROOT / ".env")
 import typer
 
 from sentinel.apk.inspector import APKInspector
+from sentinel.analysis.artifact_coverage import ArtifactCoverage, ArtifactCoverageAnalyzer
 from sentinel.decompiler.pipeline import DecompilerPipeline
 from sentinel.extraction.pipeline import ExtractionPipeline
 from sentinel.manifest.analyzer import ManifestAnalyzer
@@ -74,6 +75,48 @@ def render_validated_finding(finding) -> None:
     typer.echo(f"\nRemediation:\n{finding.remediation or 'None'}")
 
 
+def render_accessibility_graph(graph: dict[str, object] | None) -> None:
+    """Render bounded APK graph facts without treating profile content as evidence."""
+    if not graph or not graph.get("nodes"):
+        return
+    typer.echo("\nAccessibility Behavior Graph (APK evidence)")
+    for edge in graph.get("edges", []):
+        relation = edge["relation"].replace("_", " ")
+        references = ", ".join(edge.get("evidence_refs", []))
+        typer.echo(f"- {relation}: {references}")
+    for relationship in graph.get("unsupported_relationships", []):
+        typer.echo(f"- Not established: {relationship}")
+    for limitation in graph.get("analysis_limitations", []):
+        typer.echo(f"- Analysis limitation: {limitation}")
+
+
+def render_artifact_coverage(coverage: ArtifactCoverage) -> None:
+    typer.echo("\nArtifact / Decompilation Coverage")
+    typer.echo("-" * 40)
+    typer.echo(f"Analysis Mode: {coverage.analysis_mode.value.upper()}")
+    typer.echo(f"Manifest: {'available' if coverage.manifest_available else 'unavailable'}")
+    typer.echo(f"DEX Files: {len(coverage.dex_files_discovered)}")
+    for dex in coverage.dex_entries:
+        status = "readable" if dex.directly_readable else "unreadable"
+        typer.echo(f"  - {dex.path}: {status}")
+    typer.echo(f"JADX: {coverage.jadx_status.value}")
+    typer.echo(f"JADX Source Classes: {coverage.jadx_class_count}")
+    typer.echo(f"Application-Package Classes: {coverage.jadx_application_class_count}")
+    typer.echo(
+        "Application Implementation Classes: "
+        f"{coverage.jadx_application_implementation_class_count}"
+    )
+    typer.echo(f"Apktool: {coverage.apktool_status.value}")
+    typer.echo(f"Native Libraries: {len(coverage.native_libraries)}")
+    typer.echo(f"Embedded Archives: {len(coverage.embedded_archives)}")
+    typer.echo("Analysis Limitations:")
+    if not coverage.limitations:
+        typer.echo("  - None")
+    for limitation in coverage.limitations:
+        artifact = f" ({limitation.artifact})" if limitation.artifact else ""
+        typer.echo(f"  - {limitation.code.value}{artifact}: {limitation.message}")
+
+
 @app.callback()
 def main() -> None:
     """SentinelRAG Android security analysis CLI."""
@@ -133,6 +176,7 @@ def decompile_apk(
 def run_extraction(
     apk: Path,
     progress: Callable[[str], None] | None = None,
+    include_decompilation: bool = False,
 ):
     notify = progress or (lambda _message: None)
     notify("Inspecting and hashing APK")
@@ -163,6 +207,8 @@ def run_extraction(
         manifest=manifest,
     )
 
+    if include_decompilation:
+        return context, manifest, extraction, decompilation
     return context, manifest, extraction
 
 
@@ -180,7 +226,10 @@ def extract_apk(
     Extract objective APK evidence and security capabilities.
     """
 
-    context, manifest, extraction = run_extraction(apk)
+    context, manifest, extraction, decompilation = run_extraction(
+        apk, include_decompilation=True
+    )
+    coverage = ArtifactCoverageAnalyzer().analyze(context, decompilation)
 
     typer.echo("")
     typer.echo("SentinelRAG Evidence Extraction")
@@ -201,6 +250,7 @@ def extract_apk(
     typer.echo(f"Methods:      {len(extraction.methods)}")
     typer.echo(f"Permissions:  {len(extraction.permissions)}")
     typer.echo(f"Capabilities: {len(extraction.capabilities)}")
+    render_artifact_coverage(coverage)
 
     typer.echo("")
     typer.echo("Capabilities")
@@ -241,9 +291,10 @@ def analyze_apk(
     def show_progress(message: str) -> None:
         typer.echo(f"[progress] {message}")
 
-    context, manifest, extraction = run_extraction(
-        apk, progress=show_progress
+    context, manifest, extraction, decompilation = run_extraction(
+        apk, progress=show_progress, include_decompilation=True
     )
+    coverage = ArtifactCoverageAnalyzer().analyze(context, decompilation)
 
     show_progress("Matching extracted evidence to threat knowledge")
     knowledge_base = ThreatKnowledgeBase()
@@ -273,6 +324,7 @@ def analyze_apk(
         evidence_summary={name: len(getattr(extraction, name)) for name in (
             "apis", "strings", "methods", "permissions", "capabilities"
         )},
+        artifact_coverage=coverage,
         analysis_metadata=AnalysisMetadata(
             reasoning_model=GeminiReasoningProvider.MODEL, seed_count=len(matches)
         ),
@@ -339,6 +391,7 @@ def analyze_apk(
     typer.echo(f"Methods:      {len(extraction.methods)}")
     typer.echo(f"Permissions:  {len(extraction.permissions)}")
     typer.echo(f"Capabilities: {len(extraction.capabilities)}")
+    render_artifact_coverage(coverage)
 
     typer.echo("")
     typer.echo("Threat-Informed Investigation Seeds")
@@ -469,6 +522,7 @@ def analyze_apk(
                 typer.echo(
                     f"- [{artifact.classification}] {artifact.value}{location}"
                 )
+            render_accessibility_graph(profile_analysis.accessibility_graph)
 
             for index, assessment in enumerate(profile_analysis.behavior_assessments):
                 if assessment.outcome == ProfileOutcome.NO_SEED:

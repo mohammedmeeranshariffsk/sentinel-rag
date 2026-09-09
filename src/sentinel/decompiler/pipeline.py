@@ -22,6 +22,8 @@ class DecompilationResult:
     smali_path: Path | None = None
 
     errors: list[str] = field(default_factory=list)
+    apktool_return_code: int | None = None
+    jadx_return_code: int | None = None
 
 
 class DecompilerPipeline:
@@ -98,6 +100,7 @@ class DecompilerPipeline:
             ]
 
             completed = self._run_command(command)
+            result.apktool_return_code = completed.returncode
 
             if completed.returncode != 0:
                 result.errors.append(
@@ -160,6 +163,7 @@ class DecompilerPipeline:
             ]
 
             completed = self._run_command(command)
+            result.jadx_return_code = completed.returncode
 
             # JADX can return a non-zero exit code while still
             # producing useful decompiled sources.

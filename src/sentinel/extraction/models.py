@@ -15,6 +15,8 @@ class ExtractedAPI(BaseModel):
     full_reference: str
     location: EvidenceLocation
     evidence: str | None = None
+    arguments: list[str] = Field(default_factory=list)
+    call_context: str | None = None
 
 
 class ExtractedString(BaseModel):
@@ -28,6 +30,9 @@ class ExtractedMethod(BaseModel):
     class_name: str | None = None
     file: str
     line: int | None = None
+    end_line: int | None = None
+    body_start_line: int | None = None
+    body_end_line: int | None = None
 
 
 class ExtractedPermission(BaseModel):

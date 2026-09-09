@@ -9,6 +9,7 @@ from google.genai import errors, types
 from typer.testing import CliRunner
 
 from sentinel.extraction.models import EvidenceLocation, ExtractedAPI, ExtractionResult
+from sentinel.decompiler.pipeline import DecompilationResult
 from sentinel.reasoning.gemini import GeminiReasoningProvider
 from sentinel.reasoning.models import SecurityReasoningResult
 from sentinel.rag.models import RetrievedKnowledge
@@ -147,7 +148,12 @@ def test_analyze_integration_continues_on_failure(tmp_path, monkeypatch, sdk, fa
         location=EvidenceLocation(file=str(source), line=1),
     )])
     monkeypatch.setattr(cli, "run_extraction", Mock(return_value=(
-        SimpleNamespace(apk_path=apk, sha256="abc"), None, extraction
+        SimpleNamespace(apk_path=apk, sha256="abc", package_name=None),
+        None,
+        extraction,
+        DecompilationResult(
+            jadx_success=True, source_path=tmp_path, jadx_return_code=0
+        ),
     )))
     monkeypatch.setattr(cli, "ThreatKnowledgeBase", Mock())
     matches = [ThreatMatch(knowledge_id=str(i), knowledge_name=f"Seed {i}", matched_apis=["exec"]) for i in range(2)]

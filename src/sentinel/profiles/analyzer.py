@@ -3,6 +3,7 @@ import re
 
 from sentinel.extraction.models import ExtractionResult
 from sentinel.manifest.analyzer import ManifestAnalysis
+from sentinel.program_analysis.accessibility_graph import AccessibilityBehaviorGraphBuilder
 from sentinel.profiles.models import (
     ExtractionProfile,
     ProfileAnalysis,
@@ -29,6 +30,9 @@ class ProfileAnalyzer:
         extraction: ExtractionResult,
         manifest: ManifestAnalysis | None,
     ) -> ProfileAnalysis:
+        accessibility_graph = AccessibilityBehaviorGraphBuilder().build(
+            profile, extraction, manifest
+        )
         matches: list[tuple[ProfileArtifactMatch, ProfileArtifact]] = []
         for group_name in (
             "manifest", "api_calls", "exact_strings", "components_and_intents"
@@ -50,15 +54,23 @@ class ProfileAnalyzer:
                 else ProfileOutcome.INDICATOR_MATCH if len(related) == 1
                 else ProfileOutcome.APK_COOCCURRENCE
             )
+            has_direct_accessibility_action = any(
+                edge.relation == "calls_accessibility_action"
+                for edge in accessibility_graph.edges
+            )
+            if "accessibility" in bundle.template_ref and has_direct_accessibility_action:
+                outcome = ProfileOutcome.PARTIAL_RELATIONSHIP
             assessments.append(ProfileBehaviorAssessment(
                 bundle_id=bundle.id,
                 template_ref=bundle.template_ref,
                 outcome=outcome,
                 matched_evidence_refs=[item.reference for item in related],
                 required_relationship=bundle.required_relationship,
-                missing_evidence=[] if not related else [
-                    f"Required APK-local relationship not yet verified: {bundle.required_relationship}"
-                ],
+                missing_evidence=[] if not related else (
+                    accessibility_graph.unsupported_relationships
+                    if outcome == ProfileOutcome.PARTIAL_RELATIONSHIP
+                    else [f"Required APK-local relationship not yet verified: {bundle.required_relationship}"]
+                ),
             ))
 
         eligible_count = sum(
@@ -78,6 +90,7 @@ class ProfileAnalyzer:
             family_id=profile.family_id,
             artifact_matches=[item for item, _ in matches],
             behavior_assessments=assessments,
+            accessibility_graph=accessibility_graph.model_dump(mode="json"),
             conclusion=conclusion,
             limitations=[
                 "Artifact presence and APK-wide co-occurrence do not prove a behavior relationship.",

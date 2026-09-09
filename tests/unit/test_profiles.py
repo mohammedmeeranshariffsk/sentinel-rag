@@ -11,8 +11,10 @@ from sentinel.extraction.models import (
     ExtractedAPI,
     ExtractedPermission,
     ExtractedString,
+    ExtractedMethod,
     ExtractionResult,
 )
+from sentinel.decompiler.pipeline import DecompilationResult
 from sentinel.manifest.analyzer import ComponentInfo, IntentFilterInfo, ManifestAnalysis
 from sentinel.profiles.analyzer import ProfileAnalyzer
 from sentinel.profiles.finding_builder import ProfileFindingBuilder
@@ -75,11 +77,54 @@ def test_profile_loader_and_deterministic_matching():
     assert accessibility.outcome == ProfileOutcome.APK_COOCCURRENCE
     assert accessibility.missing_evidence
     assert result.family_attribution_supported is False
+    assert result.accessibility_graph is not None
 
     # An unverified candidate remains visible in the inventory but cannot seed
     # or strengthen a behavior assessment.
     candidate = next(item for item in result.artifact_matches if item.value == "get_inject")
     assert candidate.classification == "unverified_candidate"
+
+
+def test_profile_analysis_uses_observed_accessibility_callback_action_path():
+    profile = ProfileLoader().load(PROFILE_PATH)
+    extraction, manifest = extracted()
+    extraction.methods.append(ExtractedMethod(
+        name="onAccessibilityEvent", class_name="AgentService",
+        file="AgentService.java", line=10,
+    ))
+    extraction.apis[0].location.class_name = "AgentService"
+    extraction.apis[0].location.method_name = "onAccessibilityEvent"
+
+    result = ProfileAnalyzer().analyze(profile, PROFILE_PATH, extraction, manifest)
+    assessment = next(item for item in result.behavior_assessments
+                      if item.bundle_id == "bundle:accessibility-automation")
+
+    assert assessment.outcome == ProfileOutcome.PARTIAL_RELATIONSHIP
+    assert "Configuration-to-callback" in " ".join(assessment.missing_evidence)
+    assert result.accessibility_graph is not None
+    assert any(edge["relation"] == "calls_accessibility_action"
+               for edge in result.accessibility_graph["edges"])
+
+
+def test_accessibility_graph_console_output_is_concise(capsys):
+    from sentinel.cli.main import render_accessibility_graph
+
+    render_accessibility_graph({
+        "nodes": [{"node_id": "service:AgentService"}],
+        "edges": [{
+            "relation": "calls_accessibility_action",
+            "evidence_refs": ["AgentService.java:14"],
+        }],
+        "unsupported_relationships": [
+            "Configuration-to-callback control is not established by this bounded analysis."
+        ],
+    })
+
+    output = capsys.readouterr().out
+    assert "Accessibility Behavior Graph (APK evidence)" in output
+    assert "calls accessibility action: AgentService.java:14" in output
+    assert "Not established: Configuration-to-callback" in output
+    assert "{'nodes'" not in output
 
 
 def test_profile_api_matching_rejects_same_method_on_wrong_owner(tmp_path):
@@ -228,6 +273,9 @@ def test_cli_profile_review_survives_unavailable_gemini(tmp_path, monkeypatch):
         ),
         manifest,
         extraction,
+        DecompilationResult(
+            jadx_success=True, source_path=tmp_path, jadx_return_code=0
+        ),
     )))
     monkeypatch.setattr(cli, "ThreatKnowledgeBase", Mock())
     monkeypatch.setattr(

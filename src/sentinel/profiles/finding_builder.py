@@ -32,6 +32,12 @@ class ProfileFindingBuilder:
                 "One profile seed is present in the APK. The required behavior relationship "
                 "has not been established, and malware-family attribution is unsupported."
             )
+        elif assessment.outcome == ProfileOutcome.PARTIAL_RELATIONSHIP:
+            assessment_text = (
+                "A declared accessibility service, its callback, and a direct accessibility action "
+                "are observed in APK evidence. Configuration-to-callback control and broader "
+                "behavior impact remain unverified, and malware-family attribution is unsupported."
+            )
         else:
             assessment_text = (
                 "Multiple profile seeds co-occur in the APK. Their participation in one behavior "

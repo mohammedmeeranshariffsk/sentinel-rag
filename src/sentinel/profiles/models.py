@@ -88,6 +88,9 @@ class ProfileAnalysis(BaseModel):
     family_id: str
     artifact_matches: list[ProfileArtifactMatch] = Field(default_factory=list)
     behavior_assessments: list[ProfileBehaviorAssessment] = Field(default_factory=list)
+    # This is serialized APK-only graph evidence.  It is intentionally kept
+    # separate from profile artifacts, which are external research context.
+    accessibility_graph: dict[str, object] | None = None
     conclusion: str
     family_attribution_supported: bool = False
     limitations: list[str] = Field(default_factory=list)
