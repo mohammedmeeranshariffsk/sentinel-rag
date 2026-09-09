@@ -17,6 +17,9 @@ from sentinel.manifest.analyzer import ManifestAnalyzer
 from sentinel.threat_intel import ThreatKnowledgeBase, ThreatMatcher
 
 from sentinel.program_analysis import BehaviorSliceBuilder
+from sentinel.program_analysis.source_index import SourceIndex
+from sentinel.program_analysis.investigation_seeds import InvestigationSeedBuilder
+from sentinel.program_analysis.behavior_graph import BehaviorGraphBuilder
 from sentinel.rag.document_loader import KnowledgeDocumentLoader
 from sentinel.rag.embeddings import GeminiEmbeddingProvider
 from sentinel.rag.indexer import KnowledgeIndexer
@@ -311,7 +314,10 @@ def analyze_apk(
         knowledge=knowledge,
     )
 
-    # Build the RAG knowledge index.
+    show_progress("Selecting source-located investigation seeds")
+    source_index = SourceIndex.from_extraction(extraction)
+    seed_builder = InvestigationSeedBuilder(extraction, getattr(context, "package_name", None), source_index)
+    seeds = seed_builder.from_threats(matches)
 
     report = SecurityReport(
         apk_metadata=APKMetadata(
@@ -325,6 +331,8 @@ def analyze_apk(
             "apis", "strings", "methods", "permissions", "capabilities"
         )},
         artifact_coverage=coverage,
+        investigation_seeds=seeds,
+        matched_indicators=matches,
         analysis_metadata=AnalysisMetadata(
             reasoning_model=GeminiReasoningProvider.MODEL, seed_count=len(matches)
         ),
@@ -394,7 +402,7 @@ def analyze_apk(
     render_artifact_coverage(coverage)
 
     typer.echo("")
-    typer.echo("Threat-Informed Investigation Seeds")
+    typer.echo("Threat-Matched Indicators")
     typer.echo("-" * 40)
 
     if not matches:
@@ -403,7 +411,7 @@ def analyze_apk(
     for match_index, match in enumerate(matches, start=1):
         try:
             show_progress(
-                f"Investigating threat seed {match_index}/{len(matches)}: "
+                f"Reviewing threat match {match_index}/{len(matches)}: "
                 f"{match.knowledge_name}"
             )
             typer.echo("")
@@ -414,21 +422,22 @@ def analyze_apk(
 
             typer.echo(f"Score: {match.score}")
 
-            matching_apis = [
-                api
-                for api in extraction.apis
-                if api.api_name in match.matched_apis
-            ]
+            selected = [seed for seed in seeds if seed.behavior_id == match.knowledge_id
+                        and seed.selected_for_investigation and seed.located
+                        and seed.indicator_type == "api"]
+            matching_apis = [api for seed in selected for api in extraction.apis
+                             if api.location.file == seed.file and api.location.line == seed.line
+                             and api.full_reference == seed.matched_value]
 
             if not matching_apis:
                 typer.echo(
-                    "No API evidence available for behavior slicing."
+                    "No qualified source-located API seed; matched indicators remain broader APK evidence."
                 )
                 continue
 
-            # Prototype:
-            # use first matching API occurrence.
+            # Use the highest-priority qualified location, not extraction order.
             api = matching_apis[0]
+            typer.echo(f"Seed provenance: {selected[0].source_provenance.value}; quality: {selected[0].quality.value}")
 
             behavior_slice = slice_builder.build_from_api(
                 api
@@ -506,6 +515,9 @@ def analyze_apk(
                 loaded_profile, profile_path, extraction, manifest
             )
             report.profile_analyses.append(profile_analysis)
+            report.investigation_seeds = seed_builder.prioritize(
+                report.investigation_seeds + seed_builder.from_profile(profile_analysis)
+            )
             report.analysis_metadata.profile_count += 1
             report.analysis_metadata.profile_seed_count += sum(
                 item.outcome != ProfileOutcome.NO_SEED
@@ -556,6 +568,26 @@ def analyze_apk(
             report.analysis_metadata.errors.append(
                 f"Profile {profile_path}: {detail}"
             )
+
+    show_progress("Building bounded APK behavior graph")
+    report.behavior_graph = BehaviorGraphBuilder().build(
+        context, extraction, report.investigation_seeds, coverage, source_index,
+        [item.accessibility_graph for item in report.profile_analyses if item.accessibility_graph],
+    )
+    selected_seeds = [s for s in report.investigation_seeds if s.selected_for_investigation]
+    typer.echo("\n# Investigation Seeds")
+    typer.echo(f"Selected: {len(selected_seeds)}; located: {sum(s.located for s in selected_seeds)}; "
+               f"unlocated: {sum(not s.located for s in selected_seeds)}")
+    typer.echo(f"Matched candidates retained: {len(report.investigation_seeds)}")
+    for seed in selected_seeds[:10]:
+        typer.echo(f"- {seed.source_provenance.value} / {seed.quality.value}: {seed.matched_value}")
+    graph = report.behavior_graph
+    typer.echo("\n# Behavior Graph")
+    typer.echo(f"Nodes: {len(graph.nodes)}; edges: {len(graph.edges)}; "
+               f"unresolved relationships: {len(graph.unresolved_relationships)}")
+    labels = {node.node_id: node.label for node in graph.nodes}
+    for edge in graph.edges[:8]:
+        typer.echo(f"- {labels[edge.source][:100]} -> {edge.relation.value} -> {labels[edge.target][:100]}")
 
     typer.echo("\n# Validated Findings")
     if not report.validated_findings:
