@@ -83,3 +83,40 @@ The earlier design centered on fixed vulnerability engines and a large determini
 ## ADR-018 — Build one credible vertical slice before production breadth
 
 The prototype prioritizes an evidence-grounded end-to-end malware behavior investigation over perfect call graphs, whole-program taint, hundreds of rules, distributed infrastructure or unrestricted agents. Evaluation and production hardening follow after the behavior model and graph are credible.
+
+## ADR-019 — Extraction profiles are reusable investigation specifications
+
+Malware-family and security-violation profiles use one versioned, provider-independent
+contract. A profile may define manifest artifacts, APIs, methods, strings, components,
+intents, structural checks and behavior bundles. The CLI accepts profiles explicitly and
+may review several profiles against one APK. Family-specific matching logic must not be
+hard-coded into the extractor, CLI or LLM provider.
+
+Profiles are external research specifications. Their artifacts can select investigation
+seeds, but cannot become APK evidence until the extractor observes them in the analyzed
+APK. `reported_exact_token`, `reported_behavior`, `behavior_derived_search_target`, and
+`unverified_candidate` remain distinct. Unverified candidates may be shown for research
+review but cannot strengthen a behavior outcome.
+
+`INDICATOR_MATCH` and `APK_COOCCURRENCE` are prioritization outcomes. They do not imply
+that artifacts participate in one flow. `PARTIAL_RELATIONSHIP` and
+`RELATIONSHIP_SUPPORTED` require deterministic execution of a verification template over
+APK-local graph evidence. Until that engine exists, profile review must report the
+required relationship as missing and keep family attribution unsupported.
+
+LLM profile reasoning may summarize matched evidence and missing relationships. Its APK
+references must resolve to deterministic matches, its confidence is capped for presence
+and co-occurrence outcomes, and its narrative cannot create a graph edge, behavior state,
+severity, malicious intent or family verdict. Profile failure or provider failure must not
+terminate analysis of the APK or other profiles.
+
+## ADR-020 — Long analysis phases expose progress and tolerate transient providers
+
+APK decompilation, evidence extraction, indexing and model calls can each take long enough
+to look stalled. The CLI reports concise phase transitions and per-seed/profile progress
+without printing prompts, credentials or verbose internal state.
+
+Transient Gemini status codes `429`, `500`, `502`, `503`, and `504` receive one bounded
+retry. Persistent provider failure remains visible as a safe error and does not stop other
+seeds, profiles, deterministic validation or report generation. Retries cannot promote
+model output into evidence or change deterministic outcomes.

@@ -1,4 +1,11 @@
 from pathlib import Path
+from collections.abc import Callable
+
+from dotenv import load_dotenv
+
+# Load project configuration before importing modules that construct settings.
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+load_dotenv(PROJECT_ROOT / ".env")
 
 import typer
 
@@ -7,8 +14,6 @@ from sentinel.decompiler.pipeline import DecompilerPipeline
 from sentinel.extraction.pipeline import ExtractionPipeline
 from sentinel.manifest.analyzer import ManifestAnalyzer
 from sentinel.threat_intel import ThreatKnowledgeBase, ThreatMatcher
-
-from dotenv import load_dotenv
 
 from sentinel.program_analysis import BehaviorSliceBuilder
 from sentinel.rag.document_loader import KnowledgeDocumentLoader
@@ -23,8 +28,11 @@ from sentinel.reasoning.errors import safe_reasoning_error
 from sentinel.validation.validator import EvidenceValidator
 from sentinel.findings.builder import FindingBuilder
 from sentinel.reporting.models import APKMetadata, AnalysisMetadata, SecurityReport
-
-load_dotenv()
+from sentinel.profiles.analyzer import ProfileAnalyzer
+from sentinel.profiles.finding_builder import ProfileFindingBuilder
+from sentinel.profiles.loader import ProfileLoader
+from sentinel.profiles.models import ProfileOutcome
+from sentinel.profiles.reasoning import ProfileReasoningAnalyzer
 
 app = typer.Typer(
     name="sentinel",
@@ -122,9 +130,15 @@ def decompile_apk(
         typer.echo(f"Smali: {result.smali_path}")
 
 
-def run_extraction(apk: Path):
+def run_extraction(
+    apk: Path,
+    progress: Callable[[str], None] | None = None,
+):
+    notify = progress or (lambda _message: None)
+    notify("Inspecting and hashing APK")
     context = APKInspector().inspect(apk)
 
+    notify("Running Apktool and JADX decompilation")
     decompilation = DecompilerPipeline().run(context)
 
     context.manifest_path = decompilation.manifest_path
@@ -134,6 +148,7 @@ def run_extraction(apk: Path):
     manifest = None
 
     if context.manifest_path is not None:
+        notify("Parsing Android manifest")
         manifest = ManifestAnalyzer().analyze(
             context.manifest_path
         )
@@ -142,6 +157,7 @@ def run_extraction(apk: Path):
         context.version_name = manifest.version_name
         context.version_code = manifest.version_code
 
+    notify("Extracting APIs, methods, strings, permissions and capabilities")
     extraction = ExtractionPipeline().run(
         context=context,
         manifest=manifest,
@@ -213,13 +229,23 @@ def analyze_apk(
         readable=True,
     ),
     output_json: Path | None = typer.Option(None, '--output-json', dir_okay=False),
+    profile: list[Path] = typer.Option(
+        [], "--profile", exists=True, file_okay=True, dir_okay=False, readable=True,
+        help="Extraction profile JSON. Repeat this option to review multiple profiles.",
+    ),
 ) -> None:
     """
     Investigate APK evidence using retrieved context and security reasoning.
     """
 
-    context, manifest, extraction = run_extraction(apk)
+    def show_progress(message: str) -> None:
+        typer.echo(f"[progress] {message}")
 
+    context, manifest, extraction = run_extraction(
+        apk, progress=show_progress
+    )
+
+    show_progress("Matching extracted evidence to threat knowledge")
     knowledge_base = ThreatKnowledgeBase()
 
     knowledge = knowledge_base.load_json(
@@ -252,6 +278,7 @@ def analyze_apk(
         ),
     )
 
+    show_progress("Preparing retrieved security knowledge")
     documents = KnowledgeDocumentLoader().load_json(
         Path("data/knowledge/android_security.json")
     )
@@ -276,9 +303,12 @@ def analyze_apk(
         typer.echo("Security knowledge retrieval unavailable; continuing with APK evidence.")
         report.analysis_metadata.errors.append("Knowledge index unavailable")
 
+    show_progress("Preparing structured Gemini reasoning")
     reasoning = None
+    reasoning_provider = None
     try:
-        reasoning = SecurityReasoningAnalyzer(GeminiReasoningProvider())
+        reasoning_provider = GeminiReasoningProvider()
+        reasoning = SecurityReasoningAnalyzer(reasoning_provider)
     except Exception as error:
         detail = safe_reasoning_error(error)
         typer.echo(f"Security reasoning unavailable: {detail}")
@@ -317,8 +347,12 @@ def analyze_apk(
     if not matches:
         typer.echo("No investigation seeds identified.")
 
-    for match in matches:
+    for match_index, match in enumerate(matches, start=1):
         try:
+            show_progress(
+                f"Investigating threat seed {match_index}/{len(matches)}: "
+                f"{match.knowledge_name}"
+            )
             typer.echo("")
             typer.echo(
                 f"[{match.knowledge_id}] "
@@ -405,6 +439,70 @@ def analyze_apk(
             typer.echo("Investigation seed failed; continuing analysis.")
             report.analysis_metadata.errors.append(f"{match.knowledge_id}: seed failed")
 
+    if profile:
+        show_progress(f"Reviewing {len(profile)} extraction profile(s)")
+        typer.echo("\n# Malware Profile Reviews")
+    for profile_index, profile_path in enumerate(profile, start=1):
+        try:
+            show_progress(
+                f"Matching profile {profile_index}/{len(profile)}: "
+                f"{profile_path.name}"
+            )
+            loaded_profile = ProfileLoader().load(profile_path)
+            profile_analysis = ProfileAnalyzer().analyze(
+                loaded_profile, profile_path, extraction, manifest
+            )
+            report.profile_analyses.append(profile_analysis)
+            report.analysis_metadata.profile_count += 1
+            report.analysis_metadata.profile_seed_count += sum(
+                item.outcome != ProfileOutcome.NO_SEED
+                for item in profile_analysis.behavior_assessments
+            )
+            typer.echo(f"\nProfile: {loaded_profile.family_id}")
+            typer.echo(f"Schema: {loaded_profile.schema_version}")
+            typer.echo(f"Status: {loaded_profile.status}")
+            typer.echo(f"Matched artifacts: {len(profile_analysis.artifact_matches)}")
+            for artifact in profile_analysis.artifact_matches:
+                location = (
+                    f" ({artifact.file}:{artifact.line})" if artifact.file else ""
+                )
+                typer.echo(
+                    f"- [{artifact.classification}] {artifact.value}{location}"
+                )
+
+            for index, assessment in enumerate(profile_analysis.behavior_assessments):
+                if assessment.outcome == ProfileOutcome.NO_SEED:
+                    continue
+                typer.echo(
+                    f"- {assessment.bundle_id}: {assessment.outcome.value}"
+                )
+                model_result = None
+                if reasoning_provider is not None:
+                    try:
+                        model_result = ProfileReasoningAnalyzer(reasoning_provider).analyze(
+                            loaded_profile, profile_analysis, index
+                        )
+                        assessment.reasoning_summary = model_result.reasoning_summary
+                    except Exception as error:
+                        detail = safe_reasoning_error(error)
+                        assessment.reasoning_error = detail
+                        report.analysis_metadata.errors.append(
+                            f"{loaded_profile.family_id}/{assessment.bundle_id}: {detail}"
+                        )
+                        typer.echo(f"  Profile reasoning unavailable: {detail}")
+                finding = ProfileFindingBuilder().build(
+                    profile_analysis, assessment, model_result
+                )
+                if finding is not None:
+                    report.validated_findings.append(finding)
+            typer.echo(profile_analysis.conclusion)
+        except Exception as error:
+            detail = safe_reasoning_error(error)
+            typer.echo(f"Profile review unavailable: {detail}")
+            report.analysis_metadata.errors.append(
+                f"Profile {profile_path}: {detail}"
+            )
+
     typer.echo("\n# Validated Findings")
     if not report.validated_findings:
         typer.echo("No validated findings.")
@@ -414,8 +512,10 @@ def analyze_apk(
     if report.analysis_metadata.errors:
         report.analysis_metadata.status = "partial"
     if output_json is not None:
+        show_progress("Writing JSON report")
         report.write_json(output_json)
         typer.echo(f"\nJSON report: {output_json}")
+    show_progress("Analysis complete")
 
 
 if __name__ == "__main__":

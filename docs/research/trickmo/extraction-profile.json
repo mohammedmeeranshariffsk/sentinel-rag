@@ -1,0 +1,210 @@
+{
+  "schema_version": "0.1-draft",
+  "status": "research_only_not_loaded_by_runtime",
+  "family_id": "family:trickmo",
+  "classification_contract": {
+    "reported_exact_token": "The literal value appears in a reviewed source.",
+    "reported_behavior": "Researchers describe the behavior, but the reviewed source does not establish this exact implementation token.",
+    "behavior_derived_search_target": "An Android artifact useful for testing a reported behavior; it is not a TrickMo IOC.",
+    "unverified_candidate": "A proposed lead not confirmed during this collection pass.",
+    "match_rule": "No single permission, API, string, or structural feature establishes TrickMo. Promote a behavior only after its verification template resolves the required APK-local relationships."
+  },
+  "extractors": {
+    "manifest": [
+      {
+        "value": "android.permission.BIND_ACCESSIBILITY_SERVICE",
+        "declaration_type": "component_binding_permission",
+        "look_for": "service/@android:permission plus the android.accessibilityservice.AccessibilityService intent and service metadata",
+        "classification": "behavior_derived_search_target",
+        "supports": ["verify:trickmo:accessibility-automation:v1"],
+        "specificity": "low",
+        "note": "Do not treat this as an ordinary uses-permission or as proof that the service is enabled or abused."
+      },
+      {
+        "value": "android.permission.SYSTEM_ALERT_WINDOW",
+        "declaration_type": "uses_permission",
+        "classification": "behavior_derived_search_target",
+        "supports": ["verify:trickmo:credential-overlay:v1", "verify:trickmo:unlock-credential-collection:v1"],
+        "specificity": "low"
+      },
+      {
+        "value": "android.permission.RECEIVE_SMS",
+        "declaration_type": "uses_permission",
+        "classification": "behavior_derived_search_target",
+        "supports": ["verify:trickmo:sms-interception:v1"],
+        "specificity": "low"
+      },
+      {
+        "value": "android.permission.READ_SMS",
+        "declaration_type": "uses_permission",
+        "classification": "behavior_derived_search_target",
+        "supports": ["verify:trickmo:sms-interception:v1"],
+        "specificity": "low"
+      },
+      {
+        "value": "android.permission.SEND_SMS",
+        "declaration_type": "uses_permission",
+        "classification": "behavior_derived_search_target",
+        "supports": ["verify:trickmo:sms-interception:v1"],
+        "specificity": "low"
+      },
+      {
+        "value": "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+        "declaration_type": "uses_permission",
+        "classification": "unverified_candidate",
+        "supports": [],
+        "specificity": "low"
+      },
+      {
+        "value": "android.permission.READ_CALL_LOG",
+        "declaration_type": "uses_permission",
+        "classification": "unverified_candidate",
+        "supports": [],
+        "specificity": "low"
+      },
+      {
+        "value": "android.permission.READ_CONTACTS",
+        "declaration_type": "uses_permission",
+        "classification": "unverified_candidate",
+        "supports": [],
+        "specificity": "low"
+      },
+      {
+        "value": "android.permission.WRITE_EXTERNAL_STORAGE",
+        "declaration_type": "uses_permission",
+        "classification": "unverified_candidate",
+        "supports": [],
+        "specificity": "low",
+        "note": "Legacy and target-SDK dependent; its presence does not establish media collection."
+      }
+    ],
+    "api_calls": [
+      {
+        "owner": "android.accessibilityservice.AccessibilityService",
+        "method": "dispatchGesture",
+        "classification": "behavior_derived_search_target",
+        "supports": ["verify:trickmo:accessibility-automation:v1"],
+        "required_context": "configuration, event, or command must control the gesture",
+        "specificity": "low"
+      },
+      {
+        "owner": "android.view.accessibility.AccessibilityNodeInfo",
+        "method": "getText",
+        "classification": "behavior_derived_search_target",
+        "supports": ["verify:trickmo:accessibility-automation:v1"],
+        "required_context": "returned text must flow into targeting, storage, or transmission",
+        "specificity": "low"
+      },
+      {
+        "owner": "android.view.accessibility.AccessibilityNodeInfo",
+        "method": "findAccessibilityNodeInfosByText",
+        "classification": "behavior_derived_search_target",
+        "supports": ["verify:trickmo:accessibility-automation:v1"],
+        "required_context": "result must control a resolved UI action",
+        "specificity": "low"
+      },
+      {
+        "owner": "android.media.projection.MediaProjectionManager",
+        "method": "createScreenCaptureIntent",
+        "classification": "behavior_derived_search_target",
+        "supports": ["verify:trickmo:screen-collection:v1"],
+        "required_context": "resolve consent/result handling, capture source, and capture output",
+        "specificity": "low",
+        "note": "The API requests user consent; its presence does not prove silent capture."
+      },
+      {
+        "owner": "android.view.WindowManager",
+        "method": "addView",
+        "classification": "behavior_derived_search_target",
+        "supports": ["verify:trickmo:credential-overlay:v1"],
+        "required_context": "view content and target-trigger relationship must be resolved",
+        "specificity": "low"
+      },
+      {
+        "owner": "android.telephony.SmsManager",
+        "method": "getDefault",
+        "classification": "unverified_candidate",
+        "supports": ["verify:trickmo:sms-interception:v1"],
+        "required_context": "follow downstream SMS operations",
+        "specificity": "low",
+        "note": "Returns an SmsManager for the default subscription; it does not change the default SMS application."
+      },
+      {
+        "owner": "dalvik.system.DexClassLoader",
+        "method": "loadClass",
+        "classification": "behavior_derived_search_target",
+        "supports": ["verify:trickmo:packed-payload-loading:v1"],
+        "required_context": "resolve payload origin, recovery, loader construction, and loaded target",
+        "specificity": "low"
+      },
+      {
+        "owner": "android.content.pm.PackageManager",
+        "method": "setComponentEnabledSetting",
+        "classification": "unverified_candidate",
+        "supports": [],
+        "required_context": "resolve the component and enabled-state argument",
+        "specificity": "low"
+      }
+    ],
+    "exact_strings": [
+      {"value": "SaveHtml", "kind": "c2_command", "classification": "reported_exact_token", "source_refs": ["cleafy-2024"], "supports": ["verify:trickmo:credential-overlay:v1"], "specificity": "medium"},
+      {"value": "getAndroidID", "kind": "exposed_method_name", "classification": "reported_exact_token", "source_refs": ["zimperium-2024"], "supports": ["verify:trickmo:unlock-credential-collection:v1"], "specificity": "low"},
+      {"value": "clicker.json", "kind": "asset_name", "classification": "reported_exact_token", "source_refs": ["cleafy-2024"], "supports": ["verify:trickmo:accessibility-automation:v1"], "specificity": "medium"},
+      {"value": "assets/base.apk", "kind": "asset_path", "classification": "reported_exact_token", "source_refs": ["cleafy-2024"], "supports": ["verify:trickmo:packed-payload-loading:v1"], "specificity": "low"},
+      {"value": "/data/user/0/dreammes.ross431.in/app_inflict/wF.json", "kind": "file_path", "classification": "reported_exact_token", "source_refs": ["cleafy-2024"], "supports": ["verify:trickmo:packed-payload-loading:v1"], "specificity": "high"},
+      {"value": "dreammes.ross431.in", "kind": "package", "classification": "reported_exact_token", "source_refs": ["cleafy-2024"], "supports": ["verify:trickmo:packed-payload-loading:v1"], "specificity": "high"},
+      {"value": "com.turkey.inner.Uactortrust", "kind": "class", "classification": "reported_exact_token", "source_refs": ["cleafy-2024"], "supports": ["verify:trickmo:packed-payload-loading:v1"], "specificity": "high"},
+      {"value": "get_inject", "kind": "candidate_c2_command", "classification": "unverified_candidate", "source_refs": [], "supports": [], "specificity": "unknown"},
+      {"value": "update_sms", "kind": "candidate_c2_command", "classification": "unverified_candidate", "source_refs": [], "supports": [], "specificity": "unknown"},
+      {"value": "upload_photo", "kind": "candidate_c2_command", "classification": "unverified_candidate", "source_refs": [], "supports": [], "specificity": "unknown"},
+      {"value": "start_screen_record", "kind": "candidate_c2_command", "classification": "unverified_candidate", "source_refs": [], "supports": [], "specificity": "unknown"},
+      {"value": "Google Services", "kind": "candidate_deceptive_label", "classification": "unverified_candidate", "source_refs": [], "supports": [], "specificity": "low"},
+      {"value": "Google Play Services update", "kind": "candidate_deceptive_label", "classification": "unverified_candidate", "source_refs": [], "supports": [], "specificity": "low"},
+      {"value": ".php", "kind": "endpoint_suffix", "classification": "behavior_derived_search_target", "source_refs": ["zimperium-2024"], "supports": ["verify:trickmo:unlock-credential-collection:v1"], "specificity": "very_low", "note": "Use only to locate a request; require the credential-to-request data-flow edge."}
+    ],
+    "components_and_intents": [
+      {"value": "android.accessibilityservice.AccessibilityService", "kind": "service_intent", "classification": "behavior_derived_search_target", "supports": ["verify:trickmo:accessibility-automation:v1"]},
+      {"value": "SMS_DELIVER", "kind": "intent_short_name", "classification": "reported_exact_token", "source_refs": ["mitre-s0427"], "supports": ["verify:trickmo:sms-interception:v1"]},
+      {"value": "SCREEN_ON", "kind": "intent_short_name", "classification": "reported_exact_token", "source_refs": ["mitre-s0427"], "supports": ["verify:trickmo:sms-interception:v1"]},
+      {"value": "android.intent.action.BOOT_COMPLETED", "kind": "intent", "classification": "unverified_candidate", "source_refs": [], "supports": []},
+      {"value": "android.provider.Telephony.SMS_RECEIVED", "kind": "intent", "classification": "unverified_candidate", "source_refs": [], "supports": ["verify:trickmo:sms-interception:v1"]}
+    ],
+    "structural_checks": [
+      {"id": "malformed-zip", "description": "Parse central directory/local header disagreement, duplicate or invalid entries, and extractor failures without treating parser failure alone as family evidence.", "classification": "reported_behavior", "source_refs": ["cleafy-2024"], "supports": ["verify:trickmo:packed-payload-loading:v1"]},
+      {"id": "json-packer", "description": "Find JSONPacker markers and establish bytes flowing from JSON parsing/decryption into an executable payload loader.", "classification": "reported_exact_token", "source_refs": ["cleafy-2024"], "supports": ["verify:trickmo:packed-payload-loading:v1"]},
+      {"id": "secondary-payload", "description": "Inventory embedded and downloaded APK/DEX files; hash each stage and keep graph contexts separate.", "classification": "reported_behavior", "source_refs": ["cleafy-2024", "threatfabric-c"], "supports": ["verify:trickmo:packed-payload-loading:v1"]}
+    ]
+  },
+  "behavior_bundles": [
+    {
+      "id": "bundle:accessibility-automation",
+      "template_ref": "verify:trickmo:accessibility-automation:v1",
+      "seed_examples": ["AccessibilityService component", "clicker.json", "dispatchGesture"],
+      "required_relationship": "automation configuration -> accessibility callback -> resolved UI action"
+    },
+    {
+      "id": "bundle:credential-overlay",
+      "template_ref": "verify:trickmo:credential-overlay:v1",
+      "seed_examples": ["SaveHtml", "WindowManager.addView", "WebView content"],
+      "required_relationship": "target context -> deceptive UI -> user input -> network request"
+    },
+    {
+      "id": "bundle:sms-interception",
+      "template_ref": "verify:trickmo:sms-interception:v1",
+      "seed_examples": ["SMS_DELIVER", "SMS receiver", "READ_SMS"],
+      "required_relationship": "SMS event -> message content -> storage, suppression, transformation, or transmission"
+    },
+    {
+      "id": "bundle:screen-collection",
+      "template_ref": "verify:trickmo:screen-collection:v1",
+      "seed_examples": ["MediaRecorder", "createScreenCaptureIntent", "virtual display"],
+      "required_relationship": "target or command context -> capture source -> capture output"
+    },
+    {
+      "id": "bundle:packed-payload",
+      "template_ref": "verify:trickmo:packed-payload-loading:v1",
+      "seed_examples": ["JSONPacker", "assets/base.apk", "DexClassLoader.loadClass"],
+      "required_relationship": "payload source -> decode/decrypt/unpack -> executable loader"
+    }
+  ]
+}

@@ -1,0 +1,215 @@
+{
+  "schema_version": "0.1-draft",
+  "status": "research_only_not_loaded_by_runtime",
+  "family_id": "family:trickmo",
+  "template_contract": {
+    "seed_meaning": "A seed selects APK locations for investigation; it does not prove a behavior or family.",
+    "relationship_meaning": "A relationship is supported only when program analysis resolves the required nodes and edges in one compatible APK context.",
+    "outcomes": ["NO_SEED", "INDICATOR_MATCH", "APK_COOCCURRENCE", "PARTIAL_RELATIONSHIP", "RELATIONSHIP_SUPPORTED", "NOT_VERIFIABLE"],
+    "family_attribution": "Out of scope for an individual behavior template."
+  },
+  "templates": [
+    {
+      "template_id": "verify:trickmo:credential-overlay:v1",
+      "behavior_id": "behavior:credential-overlay",
+      "title": "Package-targeted credential overlay",
+      "applicable_cohorts": ["cleafy-2024-scope", "zimperium-2024-scope", "threatfabric-c-scope"],
+      "research_observation_refs": ["o-overlay", "o-pin"],
+      "source_refs": ["cleafy-2024", "zimperium-2024", "threatfabric-c"],
+      "investigation_seeds": {
+        "any_of": [
+          {"kind": "research_indicator", "indicator_set_ref": "cleafy-artifacts", "value": "SaveHtml"},
+          {"kind": "research_indicator", "indicator_set_ref": "zimperium-bridge", "value": "getAndroidID"},
+          {"kind": "apk_capability", "value": "WebView content loading"},
+          {"kind": "apk_capability", "value": "draw-over-apps or fullscreen overlay component"}
+        ],
+        "minimum": 1
+      },
+      "required_nodes": [
+        {"node_id": "target-context", "role": "context", "description": "Foreground/installed package or unlock context selects an overlay", "acceptable_evidence": ["local call/data flow", "component/lifecycle relationship"]},
+        {"node_id": "deceptive-ui", "role": "transform", "description": "HTML/WebView or equivalent UI presents credential/unlock input", "acceptable_evidence": ["bundled asset", "downloaded content with resolved use", "WebView configuration and input fields"]},
+        {"node_id": "entered-secret", "role": "source", "description": "User-entered credential, PIN or pattern", "acceptable_evidence": ["WebView bridge flow", "form/JavaScript input flow", "native UI input flow"]},
+        {"node_id": "remote-send", "role": "sink", "description": "Entered value reaches a network request", "acceptable_evidence": ["bounded data flow to network API", "resolved JavaScript request"]}
+      ],
+      "required_edges": [
+        {"from": "target-context", "to": "deceptive-ui", "relation": "selects_or_triggers", "required": true},
+        {"from": "deceptive-ui", "to": "entered-secret", "relation": "collects", "required": true},
+        {"from": "entered-secret", "to": "remote-send", "relation": "data_flows_to", "required": true}
+      ],
+      "optional_support": ["device identifier joins the request", "overlay permission/configuration", "target package list", "source-backed research tokens"],
+      "support_rule": "RELATIONSHIP_SUPPORTED requires all four nodes and all three edges in the same compatible APK/module context.",
+      "partial_rule": "A WebView, overlay permission, SaveHtml, getAndroidID, or target list alone is INDICATOR_MATCH or APK_COOCCURRENCE.",
+      "non_claims": ["The app steals credentials without a verified input-to-network edge", "The app is TrickMo", "The flow executes at runtime"]
+    },
+    {
+      "template_id": "verify:trickmo:packed-payload-loading:v1",
+      "behavior_id": "behavior:packed-payload-loading",
+      "title": "Concealed payload recovery and loading",
+      "applicable_cohorts": ["cleafy-2024-scope", "threatfabric-c-scope"],
+      "research_observation_refs": ["o-packing"],
+      "source_refs": ["cleafy-2024", "threatfabric-c"],
+      "investigation_seeds": {
+        "any_of": [
+          {"kind": "research_indicator", "indicator_set_ref": "cleafy-artifacts", "value": "assets/base.apk"},
+          {"kind": "research_indicator", "indicator_set_ref": "cleafy-artifacts", "value": "com.turkey.inner.Uactortrust"},
+          {"kind": "research_indicator", "indicator_set_ref": "cleafy-artifacts", "value": "/data/user/0/dreammes.ross431.in/app_inflict/wF.json"},
+          {"kind": "research_indicator", "indicator_set_ref": "variant-c-artifacts", "value": "dex.module"},
+          {"kind": "apk_capability", "value": "dynamic code loading"}
+        ],
+        "minimum": 1
+      },
+      "required_nodes": [
+        {"node_id": "payload-source", "role": "source", "description": "Embedded, downloaded or locally reconstructed executable payload", "acceptable_evidence": ["asset/file provenance", "network-to-file flow"]},
+        {"node_id": "recovery", "role": "transform", "description": "Decode, decrypt, unpack or extract payload", "acceptable_evidence": ["bounded call/data flow", "written executable bytes"]},
+        {"node_id": "loader", "role": "sink", "description": "Android runtime loads executable code", "acceptable_evidence": ["resolved class-loader or package-loading call"]}
+      ],
+      "required_edges": [
+        {"from": "payload-source", "to": "recovery", "relation": "data_flows_to", "required": true},
+        {"from": "recovery", "to": "loader", "relation": "loaded_by", "required": true}
+      ],
+      "optional_support": ["malformed archive structure", "JSONPacker marker", "loadModule command", "payload package name"],
+      "support_rule": "RELATIONSHIP_SUPPORTED requires payload provenance and the recovered artifact flowing to a loader.",
+      "partial_rule": "A .dex/.apk string, packer name, class-loader API, or matching path alone is an investigation seed.",
+      "non_claims": ["The loaded code is malicious without inspecting it", "A malformed archive proves TrickMo", "The app is TrickMo"]
+    },
+    {
+      "template_id": "verify:trickmo:accessibility-automation:v1",
+      "behavior_id": "behavior:accessibility-automation",
+      "title": "Configuration-driven accessibility automation",
+      "applicable_cohorts": ["cleafy-2024-scope", "zimperium-2024-scope", "threatfabric-c-scope"],
+      "research_observation_refs": ["o-clicker"],
+      "source_refs": ["cleafy-2024", "zimperium-2024", "threatfabric-c"],
+      "investigation_seeds": {
+        "any_of": [
+          {"kind": "research_indicator", "indicator_set_ref": "cleafy-artifacts", "value": "clicker.json"},
+          {"kind": "apk_capability", "value": "AccessibilityService component"},
+          {"kind": "apk_capability", "value": "accessibility action or gesture dispatch"}
+        ],
+        "minimum": 1
+      },
+      "required_nodes": [
+        {"node_id": "accessibility-entry", "role": "entrypoint", "description": "Declared accessibility service and callback", "acceptable_evidence": ["manifest-to-component link", "callback implementation"]},
+        {"node_id": "automation-config", "role": "source", "description": "Local or downloaded rules select UI text/packages/actions", "acceptable_evidence": ["configuration parse and use", "hard-coded rule data"]},
+        {"node_id": "ui-action", "role": "sink", "description": "Rules drive accessibility click, gesture or global action", "acceptable_evidence": ["data/control flow to accessibility action API"]}
+      ],
+      "required_edges": [
+        {"from": "automation-config", "to": "accessibility-entry", "relation": "controls", "required": true},
+        {"from": "accessibility-entry", "to": "ui-action", "relation": "calls", "required": true}
+      ],
+      "optional_support": ["settings/package-installer targets", "permission-prompt text filters", "configuration update path"],
+      "support_rule": "RELATIONSHIP_SUPPORTED requires the service/callback and a configuration-dependent path to a UI action.",
+      "partial_rule": "Accessibility declaration or action API presence alone does not establish coercive automation.",
+      "non_claims": ["Automated permission granting unless the targeted action is resolved", "Malicious intent from accessibility use", "The app is TrickMo"]
+    },
+    {
+      "template_id": "verify:trickmo:unlock-credential-collection:v1",
+      "behavior_id": "behavior:unlock-credential-collection",
+      "title": "Counterfeit unlock input collection",
+      "applicable_cohorts": ["zimperium-2024-scope"],
+      "research_observation_refs": ["o-pin"],
+      "source_refs": ["zimperium-2024"],
+      "investigation_seeds": {"any_of": [{"kind": "research_indicator", "indicator_set_ref": "zimperium-bridge", "value": "getAndroidID"}, {"kind": "apk_capability", "value": "fullscreen unlock-like WebView"}], "minimum": 1},
+      "required_nodes": [
+        {"node_id": "unlock-ui", "role": "source", "description": "UI accepts PIN or pattern-like input", "acceptable_evidence": ["local HTML/JavaScript", "resolved downloaded content", "native input view"]},
+        {"node_id": "device-id", "role": "context", "description": "Device identifier is retrieved", "acceptable_evidence": ["resolved bridge/API flow"]},
+        {"node_id": "credential-request", "role": "sink", "description": "Entered unlock value reaches a remote request", "acceptable_evidence": ["input-to-network data flow"]}
+      ],
+      "required_edges": [{"from": "unlock-ui", "to": "credential-request", "relation": "data_flows_to", "required": true}],
+      "optional_edges": [{"from": "device-id", "to": "credential-request", "relation": "data_flows_to"}],
+      "support_rule": "RELATIONSHIP_SUPPORTED requires unlock-like input flowing to a remote request; device-ID association is supporting evidence.",
+      "partial_rule": "getAndroidID or an unlock-like page without resolved submission is insufficient.",
+      "non_claims": ["Unlock code theft when the page is unavailable", "Remote device operation", "The app is TrickMo"]
+    },
+    {
+      "template_id": "verify:trickmo:sms-interception:v1",
+      "behavior_id": "behavior:sms-interception",
+      "title": "Event-triggered SMS interception",
+      "applicable_cohorts": ["historical-2020", "cleafy-2024-scope", "zimperium-2024-scope", "threatfabric-c-scope"],
+      "research_observation_refs": ["o-sms"],
+      "source_refs": ["mitre-s0427", "cleafy-2024", "zimperium-2024", "threatfabric-c"],
+      "investigation_seeds": {"any_of": [{"kind": "research_indicator", "indicator_set_ref": "historical-tokens", "value": "SMS_DELIVER"}, {"kind": "apk_capability", "value": "SMS receiver/default-handler logic"}, {"kind": "apk_capability", "value": "notification content access"}], "minimum": 1},
+      "required_nodes": [
+        {"node_id": "sms-entry", "role": "entrypoint", "description": "Manifest or dynamic receiver handles SMS-related events", "acceptable_evidence": ["component/intent registration", "receiver callback"]},
+        {"node_id": "message-content", "role": "source", "description": "Message or authentication-code content is read", "acceptable_evidence": ["callback/object data flow", "default-handler message query"]},
+        {"node_id": "retain-or-send", "role": "sink", "description": "Content is stored, suppressed, transformed or transmitted", "acceptable_evidence": ["bounded data flow to storage/network/delete/suppression action"]}
+      ],
+      "required_edges": [{"from": "sms-entry", "to": "message-content", "relation": "supplies_data_to", "required": true}, {"from": "message-content", "to": "retain-or-send", "relation": "data_flows_to", "required": true}],
+      "optional_support": ["SMS-related uses-permission", "default SMS role change", "OTP pattern or target list"],
+      "support_rule": "RELATIONSHIP_SUPPORTED requires event/message content and a resolved downstream action.",
+      "partial_rule": "A permission or SMS intent alone establishes capability or entrypoint only.",
+      "non_claims": ["OTP theft without content and downstream flow", "Exfiltration without a network edge", "The app is TrickMo"]
+    },
+    {
+      "template_id": "verify:trickmo:screen-collection:v1",
+      "behavior_id": "behavior:screen-collection",
+      "title": "Target-context screen collection",
+      "applicable_cohorts": ["historical-2020", "zimperium-2024-scope", "threatfabric-c-scope"],
+      "research_observation_refs": ["o-screen"],
+      "source_refs": ["mitre-s0427", "zimperium-2024", "threatfabric-c"],
+      "investigation_seeds": {"any_of": [{"kind": "research_indicator", "indicator_set_ref": "historical-tokens", "value": "MediaRecorder"}, {"kind": "apk_capability", "value": "screen capture or virtual display"}], "minimum": 1},
+      "required_nodes": [
+        {"node_id": "target-context", "role": "condition", "description": "Foreground package or operator command controls capture", "acceptable_evidence": ["control-flow condition", "command dispatch"]},
+        {"node_id": "screen-source", "role": "source", "description": "Screen frames or recording source", "acceptable_evidence": ["resolved capture API setup"]},
+        {"node_id": "capture-output", "role": "sink", "description": "Frames are written, streamed or transmitted", "acceptable_evidence": ["bounded data flow to file/socket/network"]}
+      ],
+      "required_edges": [{"from": "target-context", "to": "screen-source", "relation": "triggers", "required": true}, {"from": "screen-source", "to": "capture-output", "relation": "data_flows_to", "required": true}],
+      "support_rule": "RELATIONSHIP_SUPPORTED requires controlled capture and resolved output handling.",
+      "partial_rule": "MediaRecorder presence alone may be legitimate and is only a seed.",
+      "non_claims": ["Credential theft without target/content evidence", "Exfiltration without a network edge", "The app is TrickMo"]
+    },
+    {
+      "template_id": "verify:trickmo:proxied-c2:v1",
+      "behavior_id": "behavior:proxied-c2",
+      "title": "Application traffic routed through embedded TON proxy",
+      "applicable_cohorts": ["threatfabric-c-scope"],
+      "research_observation_refs": ["o-ton"],
+      "source_refs": ["threatfabric-c"],
+      "investigation_seeds": {"any_of": [{"kind": "research_indicator", "indicator_set_ref": "variant-c-artifacts", "value": ".adnl"}, {"kind": "apk_capability", "value": "embedded native proxy"}, {"kind": "apk_capability", "value": "HTTP proxy configuration"}], "minimum": 1},
+      "required_nodes": [
+        {"node_id": "proxy-start", "role": "transform", "description": "Bundled proxy is started on a loopback endpoint", "acceptable_evidence": ["native/process/service launch with local endpoint"]},
+        {"node_id": "http-client", "role": "source", "description": "Application command channel configures that proxy", "acceptable_evidence": ["configuration/control flow to HTTP client"]},
+        {"node_id": "adnl-destination", "role": "sink", "description": "Configured request destination uses an .adnl identity", "acceptable_evidence": ["request construction and destination flow"]}
+      ],
+      "required_edges": [{"from": "proxy-start", "to": "http-client", "relation": "provides_proxy_to", "required": true}, {"from": "http-client", "to": "adnl-destination", "relation": "sends_to", "required": true}],
+      "support_rule": "RELATIONSHIP_SUPPORTED requires the loopback proxy, client proxy configuration and .adnl destination in one module relationship.",
+      "partial_rule": ".adnl or a TON library alone is not C2 evidence.",
+      "non_claims": ["TON itself is malicious", "A reachable operator endpoint", "The app is TrickMo"]
+    },
+    {
+      "template_id": "verify:trickmo:network-pivot:v1",
+      "behavior_id": "behavior:network-pivot",
+      "title": "Operator-controlled network probing and pivoting",
+      "applicable_cohorts": ["threatfabric-c-scope"],
+      "research_observation_refs": ["o-pivot"],
+      "source_refs": ["threatfabric-c"],
+      "investigation_seeds": {"any_of": [{"kind": "research_indicator", "indicator_set_ref": "variant-c-artifacts", "value": "startSocks5Proxy"}, {"kind": "research_indicator", "indicator_set_ref": "variant-c-artifacts", "value": "dnsLookup"}, {"kind": "apk_capability", "value": "SSH forwarding or SOCKS5 server"}], "minimum": 1},
+      "required_nodes": [
+        {"node_id": "remote-command", "role": "source", "description": "Incoming authenticated/operator command selects probing, tunnel or proxy action", "acceptable_evidence": ["network message to command dispatcher flow"]},
+        {"node_id": "network-primitive", "role": "transform", "description": "Probe, SSH forwarding or SOCKS5 implementation", "acceptable_evidence": ["resolved library/API/process calls"]},
+        {"node_id": "result-or-forward", "role": "sink", "description": "Results return upstream or traffic is forwarded through the device", "acceptable_evidence": ["data flow to response channel", "socket forwarding relationship"]}
+      ],
+      "required_edges": [{"from": "remote-command", "to": "network-primitive", "relation": "dispatches", "required": true}, {"from": "network-primitive", "to": "result-or-forward", "relation": "returns_or_forwards", "required": true}],
+      "optional_support": ["multiple related command tokens", "SSH client library", "SOCKS authentication configuration"],
+      "support_rule": "RELATIONSHIP_SUPPORTED requires external command dispatch into a network primitive and its result/forwarding path.",
+      "partial_rule": "ping, DNS, SSH, SOCKS or curl capability without the command relationship may be legitimate.",
+      "non_claims": ["Internal-network compromise", "Fraud evasion", "The app is TrickMo"]
+    },
+    {
+      "template_id": "verify:trickmo:nfc-declared-unused:v1",
+      "behavior_id": "behavior:nfc-capability",
+      "title": "Declared NFC capability with no observed reachable use",
+      "applicable_cohorts": ["threatfabric-c-scope"],
+      "research_observation_refs": ["o-nfc"],
+      "source_refs": ["threatfabric-c"],
+      "investigation_seeds": {"any_of": [{"kind": "apk_capability", "value": "NFC-related manifest declaration"}, {"kind": "apk_capability", "value": "host-card-emulation feature check"}], "minimum": 1},
+      "required_nodes": [
+        {"node_id": "nfc-declaration", "role": "manifest", "description": "NFC permission or feature is declared", "acceptable_evidence": ["manifest declaration with exact location"]},
+        {"node_id": "nfc-code", "role": "candidate", "description": "Code that exercises NFC functionality", "acceptable_evidence": ["reachable call/component relationship"]}
+      ],
+      "required_edges": [],
+      "support_rule": "Classify DECLARED_ONLY when declaration is observed and no reachable NFC code is found within explicitly recorded analysis coverage; do not use RELATIONSHIP_SUPPORTED.",
+      "partial_rule": "Absence of a discovered edge is NOT_VERIFIABLE unless analyzed stages, roots and graph coverage are recorded.",
+      "non_claims": ["NFC abuse", "Permanent absence of runtime-delivered NFC code", "The app is TrickMo"]
+    }
+  ]
+}

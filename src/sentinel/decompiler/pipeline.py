@@ -174,6 +174,17 @@ class DecompilerPipeline:
             if output_dir.exists():
                 result.jadx_output = output_dir
 
+                # Some malformed APKs defeat Apktool while JADX still
+                # produces a decoded manifest that is suitable for analysis.
+                jadx_manifest = (
+                    output_dir / "resources" / "AndroidManifest.xml"
+                )
+                if (
+                    result.manifest_path is None
+                    and jadx_manifest.is_file()
+                ):
+                    result.manifest_path = jadx_manifest
+
                 sources_dir = output_dir / "sources"
 
                 if sources_dir.exists():

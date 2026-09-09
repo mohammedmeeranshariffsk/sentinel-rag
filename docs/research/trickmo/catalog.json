@@ -1,0 +1,93 @@
+{
+  "schema_version": "0.1-draft",
+  "status": "research_only_not_loaded_by_runtime",
+  "collected_on": "2026-09-09",
+  "coverage": "Selected accessible public reports; incomplete; no sample binaries analyzed",
+  "family": {"id": "family:trickmo", "name": "TrickMo", "platform": "android", "external_ids": {"mitre_attack": "S0427"}},
+  "sources": [
+    {"id": "cleafy-2024", "publisher": "Cleafy", "url": "https://www.cleafy.com/cleafy-labs/a-new-trickmo-saga-from-banking-trojan-to-victims-data-leak", "published_on": "2024-09-10", "type": "primary_research", "access": "text_read_figures_not_transcribed"},
+    {"id": "zimperium-2024", "publisher": "Zimperium", "url": "https://zimperium.com/blog/expanding-the-investigation-deep-dive-into-latest-trickmo-samples", "published_on": "2024-10-11", "type": "primary_research", "access": "text_read", "cites": ["cleafy-2024"]},
+    {"id": "threatfabric-c", "publisher": "ThreatFabric", "url": "https://www.threatfabric.com/blogs/new-trickmo-variant-device-take-over-malware-targeting-banking-fintech-wallet-auth-app", "published_on": null, "type": "primary_research", "access": "text_read", "date_note": "Report describes tracking in January-February 2026; publication date not verified"},
+    {"id": "mitre-s0427", "publisher": "MITRE ATT&CK", "url": "https://attack.mitre.org/software/S0427/", "published_on": null, "modified_on": "2025-04-25", "version": "1.1", "type": "curated_secondary", "access": "text_read", "cites": ["ibm-2020"]},
+    {"id": "ibm-2020", "publisher": "IBM X-Force", "url": "https://securityintelligence.com/posts/trickbot-pushing-a-2fa-bypass-app-to-bank-customers-in-germany/", "published_on": "2020-03-24", "type": "primary_research", "access": "original_redirects_to_generic_page", "date_note": "Date supplied by MITRE citation; original content not independently read"},
+    {"id": "zimperium-iocs", "publisher": "Zimperium", "url": "https://github.com/Zimperium/IOC/tree/master/2024-10-TrickMo", "published_on": null, "type": "primary_ioc_list", "access": "directory_and_domains_read_apks_and_droppers_fetch_failed", "revision": null}
+  ],
+  "cohorts": [
+    {"id": "historical-2020", "family_id": "family:trickmo", "source_refs": ["mitre-s0427"], "kind": "report_scope", "official_variant_name": null},
+    {"id": "cleafy-2024-scope", "family_id": "family:trickmo", "source_refs": ["cleafy-2024"], "kind": "report_scope", "official_variant_name": null},
+    {"id": "zimperium-2024-scope", "family_id": "family:trickmo", "source_refs": ["zimperium-2024", "zimperium-iocs"], "kind": "report_scope", "official_variant_name": null},
+    {"id": "threatfabric-c-scope", "family_id": "family:trickmo", "source_refs": ["threatfabric-c"], "kind": "report_scope", "official_variant_name": "Variant C"}
+  ],
+  "indicator_sets": [
+    {
+      "id": "cleafy-artifacts", "cohort_id": "cleafy-2024-scope", "source_id": "cleafy-2024",
+      "locator": "Anti-analysis Mechanisms Dropper; Unpacking; Malware Features; Clicker configuration",
+      "basis": "reported_exact_token", "sample_sha256": null,
+      "values": [
+        {"kind": "asset_path", "value": "assets/base.apk", "stage": "dropper"},
+        {"kind": "package", "value": "dreammes.ross431.in", "stage": "payload"},
+        {"kind": "class", "value": "com.turkey.inner.Uactortrust", "stage": "unpacking"},
+        {"kind": "file_path", "value": "/data/user/0/dreammes.ross431.in/app_inflict/wF.json", "stage": "unpacking"},
+        {"kind": "asset_name", "value": "clicker.json", "stage": "payload"},
+        {"kind": "c2_command", "value": "SaveHtml", "stage": "payload"},
+        {"kind": "endpoint_path", "value": "/c", "stage": "payload"},
+        {"kind": "packer", "value": "JSONPacker", "stage": "dropper_and_payload"}
+      ],
+      "match_policy": "research_lead_only",
+      "caveat": "Command tokens are not proven method declarations. Paths and packages are report-specific. Endpoint alone has low specificity."
+    },
+    {
+      "id": "zimperium-bridge", "cohort_id": "zimperium-2024-scope", "source_id": "zimperium-2024",
+      "locator": "A New Dangerous Twist: Unlock Code Theft", "basis": "reported_exact_token", "sample_sha256": null,
+      "values": [{"kind": "exposed_method_name", "value": "getAndroidID", "declaring_class": null, "signature": null, "stage": "payload"}],
+      "match_policy": "research_lead_only", "caveat": "Common method name; reported for some samples, not every member of the family."
+    },
+    {
+      "id": "historical-tokens", "cohort_id": "historical-2020", "source_id": "mitre-s0427",
+      "locator": "Techniques Used", "basis": "secondary_report_exact_token", "sample_sha256": null,
+      "values": [
+        {"kind": "intent_short_name", "value": "SCREEN_ON"},
+        {"kind": "intent_short_name", "value": "SMS_DELIVER"},
+        {"kind": "api_class", "value": "MediaRecorder", "method": null, "signature": null},
+        {"kind": "crypto_algorithm", "value": "PBEWithMD5AndDES"}
+      ],
+      "match_policy": "research_lead_only", "caveat": "No full method signatures or normalized intent constants inferred from these short names."
+    },
+    {
+      "id": "variant-c-artifacts", "cohort_id": "threatfabric-c-scope", "source_id": "threatfabric-c",
+      "locator": "A C2 Communication overhaul; A modular Architecture; Bot commands", "basis": "reported_exact_token", "sample_sha256": null,
+      "values": [
+        {"kind": "host_suffix", "value": ".adnl"},
+        {"kind": "package", "value": "dex.module", "stage": "downloaded_module"},
+        {"kind": "library", "value": "Pine", "usage": "reported_initialized_without_hook_installations"},
+        {"kind": "c2_command", "value": "loadModule"},
+        {"kind": "c2_command", "value": "startSocks5Proxy"},
+        {"kind": "c2_command", "value": "dnsLookup"}
+      ],
+      "match_policy": "research_lead_only", "caveat": "Legitimate libraries and networks are not family identifiers; source prose and command table differ in dnslookup capitalization."
+    }
+  ],
+  "observations": [
+    {"id": "o-overlay", "cohort_id": "cleafy-2024-scope", "source_id": "cleafy-2024", "locator": "Malware Features", "behavior_id": "behavior:credential-overlay", "statement": "App inventory informs delivery of a package-specific HTML credential overlay.", "basis": "researcher_report", "usage": "reported_used", "indicator_set_refs": ["cleafy-artifacts"]},
+    {"id": "o-packing", "cohort_id": "cleafy-2024-scope", "source_id": "cleafy-2024", "locator": "Malformed ZIP; Unpacking", "behavior_id": "behavior:packed-payload-loading", "statement": "Malformed archives hinder analysis; encrypted payload content is recovered and loaded.", "basis": "researcher_report", "usage": "reported_used", "indicator_set_refs": ["cleafy-artifacts"]},
+    {"id": "o-clicker", "cohort_id": "cleafy-2024-scope", "source_id": "cleafy-2024", "locator": "Clicker configuration", "behavior_id": "behavior:accessibility-automation", "statement": "Configuration drives accessibility automation of system UI.", "basis": "researcher_report", "usage": "reported_used", "indicator_set_refs": ["cleafy-artifacts"]},
+    {"id": "o-pin", "cohort_id": "zimperium-2024-scope", "source_id": "zimperium-2024", "locator": "A New Dangerous Twist: Unlock Code Theft", "behavior_id": "behavior:unlock-credential-collection", "statement": "Some samples present counterfeit unlock UI and transmit entered secrets with a device identifier.", "basis": "researcher_report", "usage": "reported_used", "indicator_set_refs": ["zimperium-bridge"]},
+    {"id": "o-sms", "cohort_id": "historical-2020", "source_id": "mitre-s0427", "locator": "Techniques Used", "behavior_id": "behavior:sms-interception", "statement": "Broadcast-triggered activity and SMS interception are catalogued.", "basis": "secondary_report", "usage": "reported_used", "indicator_set_refs": ["historical-tokens"]},
+    {"id": "o-screen", "cohort_id": "historical-2020", "source_id": "mitre-s0427", "locator": "T1513", "behavior_id": "behavior:screen-collection", "statement": "Targeted screen capture supports authorization-code collection.", "basis": "secondary_report", "usage": "reported_used", "indicator_set_refs": ["historical-tokens"]},
+    {"id": "o-ton", "cohort_id": "threatfabric-c-scope", "source_id": "threatfabric-c", "locator": "A C2 Communication overhaul", "behavior_id": "behavior:proxied-c2", "statement": "An embedded loopback proxy routes command traffic through TON.", "basis": "researcher_report", "usage": "reported_used", "indicator_set_refs": ["variant-c-artifacts"]},
+    {"id": "o-pivot", "cohort_id": "threatfabric-c-scope", "source_id": "threatfabric-c", "locator": "Network reconnaissance and tunnelling", "behavior_id": "behavior:network-pivot", "statement": "Device-side probing, SSH tunnels and authenticated proxying are available to operators.", "basis": "researcher_report", "usage": "reported_used", "indicator_set_refs": ["variant-c-artifacts"]},
+    {"id": "o-nfc", "cohort_id": "threatfabric-c-scope", "source_id": "threatfabric-c", "locator": "NFC permissions declared but unused", "behavior_id": "behavior:nfc-capability", "statement": "Permissions are declared; the researchers found no reachable NFC implementation in either stage.", "basis": "researcher_report", "usage": "declared_without_observed_use", "indicator_set_refs": []}
+  ],
+  "public_sample_metadata": [
+    {"sha256": "4cd8635062ff6b0885216a0b1658ebcb2938b670f7ac08ecb0b5fb85d8973ea0", "role": "downloaded_module", "cohort_id": "threatfabric-c-scope", "source_id": "threatfabric-c", "locator": "Appendix / Indicators of Compromise / new variant module", "binary_downloaded": false, "locally_analyzed": false}
+  ],
+  "coverage_gaps": [
+    {"category": "permissions", "status": "exact_manifest_values_not_transcribed", "reason": "Do not convert capability prose into an invented uses-permission inventory; component binding permissions need separate storage."},
+    {"category": "api_calls", "status": "exact_calls_and_signatures_incomplete", "reason": "Class references and behavior descriptions do not prove exact invoked methods."},
+    {"category": "methods", "status": "one_exposed_name_recorded", "reason": "Command names must not be relabeled as Java methods."},
+    {"category": "sample_hashes", "status": "selected_public_metadata_only", "reason": "Zimperium apks.csv and droppers.csv could not be fetched during this pass."},
+    {"category": "historical_primary_source", "status": "unavailable", "reason": "IBM original URL redirected; historical facts explicitly attributed to MITRE."},
+    {"category": "ioc_completeness", "status": "partial", "reason": "Cleafy withheld infrastructure IOCs; no confidential material inferred or collected."},
+    {"category": "variant_relationships", "status": "unresolved", "reason": "Report cohorts are not assumed to be distinct official variants; cross-report sample overlap is unknown."}
+  ]
+}

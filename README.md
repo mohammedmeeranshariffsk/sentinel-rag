@@ -52,7 +52,7 @@ The project is primarily about malware behavior relationships, not broad generic
 - Bounded local Java flow recognition for straightforward `EditText` input through concatenation or `StringBuilder` into `Runtime.exec`.
 - Network-isolated unit tests with mocked Gemini calls.
 
-The verified test baseline is currently `101 passed`.
+The verified test baseline is currently `113 passed`.
 
 ## Demonstrated AndroGoat Flow
 
@@ -101,6 +101,9 @@ The LLM can explain evidence and identify gaps. Program analysis and determinist
 ## Usage
 
 Install the project in an existing Python 3.11+ environment and configure `GEMINI_API_KEY` in the environment or `.env` file. External Apktool and JADX executables must also be available for decompilation.
+The CLI resolves the repository `.env` from the installed source location, so invocation
+does not depend on the terminal's current directory. Relative APK, profile and report
+paths still resolve from the current directory.
 
 ```text
 sentinel inspect app.apk
@@ -108,9 +111,17 @@ sentinel decompile app.apk
 sentinel extract app.apk
 sentinel analyze app.apk
 sentinel analyze app.apk --output-json reports/app.json
+sentinel analyze app.apk --profile docs/research/trickmo/extraction-profile.json --output-json reports/trickmo-review.json
+sentinel analyze app.apk --profile profiles/family-a.json --profile profiles/violation-b.json
 ```
 
 The `analyze` command continues across individual retrieval or Gemini failures and reports safe error summaries without printing prompts or credentials.
+It prints concise progress messages for the long decompilation, extraction, retrieval,
+reasoning, profile and report phases. Transient Gemini `429`/`5xx` failures receive one
+bounded retry before analysis continues without that model result.
+`--profile` is repeatable. Profile artifacts seed deterministic review and are
+reported separately from APK evidence; a match or APK-wide co-occurrence does not
+establish a behavior relationship or malware-family attribution.
 
 ## Current Architecture
 
@@ -126,6 +137,7 @@ src/sentinel/
 ├── reasoning/           provider abstraction, prompt and Gemini reasoning
 ├── validation/          evidence scopes, states and bounded local flow
 ├── findings/            deterministic structured finding construction
+├── profiles/            reusable extraction-profile loading and review
 ├── reporting/           JSON report models
 └── cli/                 commands and analyst output
 ```

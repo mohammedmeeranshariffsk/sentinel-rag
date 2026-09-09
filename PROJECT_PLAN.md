@@ -114,29 +114,50 @@ Completed prototype foundation:
 6. Provider-based Gemini structured reasoning with evidence-separated prompts.
 7. Deterministic reference validation, structured findings, CLI output and JSON reports.
 8. A bounded local Java flow analyzer for simple input-to-`Runtime.exec` relationships.
+9. Explicit, repeatable extraction-profile loading for malware families and security
+   violations, deterministic manifest/API/string/component seed matching, conservative
+   behavior-bundle co-occurrence, optional bounded Gemini summaries, and profile results
+   in console and JSON reports.
+10. Concise CLI phase/seed/profile progress, JADX-manifest fallback for malformed APKs,
+    package-source fallback for packed samples, receiver-aware profile API matching and
+    one bounded retry for transient Gemini failures.
 
 Next priorities:
 
-1. Malware Behavior Knowledge Model.
-2. Structured behavior and indicator repository.
-3. Behavior Matcher and multi-indicator correlation.
-4. Call Graph Builder.
-5. Bounded context and data-flow expansion.
-6. Behavior Graph.
-7. Threat-knowledge retrieval for matched behavior.
+1. Formalize the draft extraction-profile and verification-template schemas, stable IDs,
+   review status, migrations and repository location.
+2. Load and deterministically execute `verification-templates.json`; map required nodes
+   and edges to APK evidence rather than stopping at artifact co-occurrence.
+3. Call Graph Builder.
+4. Bounded context and interprocedural data-flow expansion.
+5. Android lifecycle, callback, component and Intent relationships.
+6. Behavior Graph and relationship-aware Behavior Matcher.
+7. Threat-knowledge retrieval for matched behavior and profile source references.
 8. LLM behavior analysis over Behavior Graph context.
-9. Expanded deterministic evidence validation.
-10. Structured malware-analysis report.
+9. Expanded deterministic evidence and structured-claim validation.
+10. Structured malware-analysis report with profile comparison and qualified similarity.
 11. Bounded, evidence-driven agentic investigation.
-12. Threat-research ingestion and knowledge maintenance.
-13. Evaluation and benchmarking.
+12. Threat-research ingestion, profile review and knowledge maintenance.
+13. Benign/malicious evaluation corpus, calibration and benchmarking.
 14. Production observability and API.
+
+The first version of the Malware Behavior Knowledge Model and multi-indicator matcher is
+therefore **partially complete**. `ExtractionProfile`, typed artifacts, behavior bundles,
+profile outcomes and provenance classifications exist. The draft TrickMo profile proves
+the reusable shape. Verification-template execution, source-backed repository promotion,
+graph relationships, calibration and family-level decision policy remain unfinished.
 
 The existing local-flow analyzer is program-analysis infrastructure for this roadmap. It should grow toward relationships such as credential collection to transmission, SMS interception to exfiltration, accessibility events to credential extraction, download to dynamic loading, command construction to process execution, boot receiver to service startup, and overlay creation to credential collection. Broad OWASP vulnerability-flow coverage is not the immediate priority.
 
 ## Prototype Success
 
 The prototype succeeds when `sentinel analyze <apk>` provides a reproducible vertical slice from real APK evidence through threat-informed investigation, bounded behavior context, relevant external knowledge, structured LLM reasoning, deterministic validation, and a structured report without presenting retrieved knowledge or unsupported model output as APK fact.
+
+For profile-driven review, success additionally requires that the same CLI can accept one
+or more versioned profiles, preserve their status and schema version, record exact APK
+matches, distinguish single indicators from APK-wide co-occurrence, continue without an
+LLM, and refuse relationship or family claims until deterministic APK evidence supports
+them.
 
 The demonstrated AndroGoat local flow is:
 

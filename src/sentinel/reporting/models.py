@@ -4,6 +4,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from sentinel.findings.models import SecurityFinding
+from sentinel.profiles.models import ProfileAnalysis
 
 
 class APKMetadata(BaseModel):
@@ -20,6 +21,8 @@ class AnalysisMetadata(BaseModel):
     reasoning_model: str
     status: str = "complete"
     seed_count: int = 0
+    profile_count: int = 0
+    profile_seed_count: int = 0
     errors: list[str] = Field(default_factory=list)
     provenance_limitations: list[str] = Field(default_factory=lambda: [
         "Text presence does not prove execution, data flow, security impact or malware attribution.",
@@ -33,6 +36,7 @@ class SecurityReport(BaseModel):
     apk_metadata: APKMetadata
     evidence_summary: dict[str, int]
     validated_findings: list[SecurityFinding] = Field(default_factory=list)
+    profile_analyses: list[ProfileAnalysis] = Field(default_factory=list)
     analysis_metadata: AnalysisMetadata
 
     def write_json(self, path: Path) -> None:

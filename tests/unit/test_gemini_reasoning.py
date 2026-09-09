@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from google.genai import types
+from google.genai import errors, types
 from typer.testing import CliRunner
 
 from sentinel.extraction.models import EvidenceLocation, ExtractedAPI, ExtractionResult
@@ -46,7 +46,7 @@ def test_gemini_configuration_and_thought_filtering(sdk):
     schema = SecurityReasoningResult.model_json_schema()
     assert GeminiReasoningProvider().generate_structured("prompt", response_schema=schema) == '{"ok": true}'
     assert factory.call_args.kwargs["api_key"] == "fake-key"
-    assert factory.call_args.kwargs["http_options"].timeout == 30000
+    assert factory.call_args.kwargs["http_options"].timeout == 60000
     args = client.models.generate_content.call_args.kwargs
     assert args["model"] == "gemini-3.5-flash-lite"
     assert args["contents"] == "prompt"
@@ -62,6 +62,43 @@ def test_gemini_configuration_and_thought_filtering(sdk):
     assert config.automatic_function_calling is None
     assert config.tools is None
     assert config.tool_config is None
+
+
+def test_retryable_gemini_server_failure_is_retried_once(sdk):
+    sdk[1].models.generate_content.side_effect = [
+        errors.ServerError(504, {
+            "error": {
+                "code": 504,
+                "status": "DEADLINE_EXCEEDED",
+                "message": "upstream timeout",
+            }
+        }),
+        completed('{"ok": true}'),
+    ]
+
+    result = GeminiReasoningProvider().generate_structured(
+        "prompt", response_schema={"type": "object"}
+    )
+
+    assert result == '{"ok": true}'
+    assert sdk[1].models.generate_content.call_count == 2
+
+
+def test_non_retryable_gemini_failure_is_not_retried(sdk):
+    sdk[1].models.generate_content.side_effect = errors.ClientError(400, {
+        "error": {
+            "code": 400,
+            "status": "INVALID_ARGUMENT",
+            "message": "invalid request",
+        }
+    })
+
+    with pytest.raises(errors.ClientError):
+        GeminiReasoningProvider().generate_structured(
+            "prompt", response_schema={"type": "object"}
+        )
+
+    assert sdk[1].models.generate_content.call_count == 1
 
 
 def test_sdk_structured_json_works_without_tools_or_afc_configuration(sdk, monkeypatch, caplog):

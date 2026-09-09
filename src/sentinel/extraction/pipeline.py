@@ -86,10 +86,32 @@ class ExtractionPipeline:
             *manifest.package_name.split(".")
         )
 
-        if package_root.exists():
+        if (
+            package_root.exists()
+            and ExtractionPipeline._contains_application_source(
+                package_root
+            )
+        ):
             return package_root
 
         return source_root
+
+    @staticmethod
+    def _contains_application_source(
+        package_root: Path,
+    ) -> bool:
+        """Ignore package trees containing only generated Android classes."""
+        generated_names = {
+            "R.java", "R.kt", "BuildConfig.java", "BuildConfig.kt"
+        }
+        return any(
+            file_path.name not in generated_names
+            and not file_path.name.startswith("R$")
+            for file_path in package_root.rglob("*")
+            if file_path.is_file()
+            and file_path.suffix.lower()
+            in ExtractionPipeline.SOURCE_EXTENSIONS
+        )
 
     def _iter_source_files(self, source_root: Path):
         for file_path in source_root.rglob("*"):
