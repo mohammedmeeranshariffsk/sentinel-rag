@@ -47,7 +47,7 @@ def test_generated_code_not_selected(tmp_path,name):
 def test_library_generic_match_retained_but_not_selected(tmp_path):
     _,_,_,seeds=fixture(tmp_path,{'Noise.java':'package com.glide.blade;\nclass Noise {\n void work() { delegate.performAction(action); }\n}'},'performAction')
     assert len(seeds)==1
-    assert seeds[0].source_provenance == 'THIRD_PARTY'
+    assert seeds[0].source_provenance == 'UNKNOWN'
     assert seeds[0].quality == 'WEAK'
     assert not seeds[0].selected_for_investigation
     assert seeds[0].evidence_refs
@@ -93,7 +93,7 @@ def test_concrete_accessibility_application_seed(tmp_path):
 
 def test_app_priority_over_unknown_library_and_unlocated(tmp_path):
     code='\nclass Main {\n void test() { Runtime.getRuntime().exec("ping"); }\n}'
-    _,_,builder,seeds=fixture(tmp_path,{'Z.java':'package example.app;'+code,'A.java':'package library.other;'+code,'B.java':code})
+    _,_,builder,seeds=fixture(tmp_path,{'Z.java':'package example.app;'+code,'A.java':'package okhttp3.internal;'+code,'B.java':code})
     seeds += builder.from_threats([ThreatMatch(knowledge_id='P',knowledge_name='P',matched_permissions=['permission'])])
     seeds=builder.prioritize(seeds)
     assert [s.source_provenance.value for s in seeds[:3]]==['APPLICATION','UNKNOWN','THIRD_PARTY']

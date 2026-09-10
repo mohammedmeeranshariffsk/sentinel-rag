@@ -8,6 +8,19 @@ class BehaviorRelationship(BaseModel):
 
 
 class ThreatKnowledge(BaseModel):
+    schema_version: str = '1.0'
+    malware_behavior_category: str = 'INVESTIGATION'
+    classes: list[str] = Field(default_factory=list)
+    components: list[str] = Field(default_factory=list)
+    intents: list[str] = Field(default_factory=list)
+    sources: list[str] = Field(default_factory=list)
+    sinks: list[str] = Field(default_factory=list)
+    behavior_sequences: list[list[str]] = Field(default_factory=list)
+    associated_capabilities: list[str] = Field(default_factory=list)
+    known_false_positives: list[str] = Field(default_factory=list)
+    references: list[str] = Field(default_factory=list)
+    provenance: str = 'Local analyst-authored investigation specification; not APK evidence'
+    updated_at: str = '2026-09-10'
     knowledge_id: str
     name: str
     description: str

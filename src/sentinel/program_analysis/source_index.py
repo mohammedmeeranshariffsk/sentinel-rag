@@ -127,6 +127,11 @@ class SourceIndex:
                     self._resolve(method, call)
                 calls.append(call)
             self.calls[method.key] = calls
+        self.incoming_calls = {}
+        for calls in self.calls.values():
+            for call in calls:
+                if call.target:
+                    self.incoming_calls.setdefault(call.target, []).append(call)
 
     @classmethod
     def from_extraction(cls, extraction):

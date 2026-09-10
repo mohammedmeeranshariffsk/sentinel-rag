@@ -211,6 +211,7 @@ class DecompilerPipeline:
     def run(
         self,
         context: APKContext,
+        allow_failed: bool = False,
     ) -> DecompilationResult:
         """Run Apktool and JADX."""
 
@@ -226,7 +227,7 @@ class DecompilerPipeline:
             result,
         )
 
-        if not result.apktool_success and not result.jadx_success:
+        if not result.apktool_success and not result.jadx_success and not allow_failed:
             raise RuntimeError(
                 "Both Apktool and JADX failed. "
                 + " | ".join(result.errors)

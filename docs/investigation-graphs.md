@@ -6,11 +6,19 @@ has a `selected_for_investigation` flag: weak and generated candidates remain
 in JSON even when expansion is declined. `matched_indicators` preserves the
 original threat matches and profile analyses retain their artifact inventory.
 
-Priority is located application implementation, unknown-origin source,
-third-party/framework source, then unlocated APK evidence. Application package
-prefixes include subpackages. A different package is a third-party **candidate**,
-not an authorship determination; obfuscated or relocated application code can
-fall outside the manifest namespace. Missing package information stays unknown.
+Priority is located APPLICATION, APPLICATION_CANDIDATE, UNKNOWN, THIRD_PARTY,
+then unlocated APK evidence. FRAMEWORK and GENERATED candidates remain reportable
+but are excluded from primary recursive investigation. Application package prefixes
+include subpackages. Exact recovered manifest components can establish application
+ownership outside that prefix. Other namespaces remain UNKNOWN unless explicit
+library recognition or corroborated ownership signals apply.
+
+Ownership is separate from evidence state and artifact coverage. Candidate ownership
+uses application-resource references plus a package literal, or an already resolved
+call from application/candidate code into an otherwise unknown source class. Call
+propagation is limited to two hops and never crosses unresolved calls or relabels
+recognized framework/library/generated code. These are ownership hints, not authorship
+proof or behavior evidence. JSON retains confidence, reasons and source references.
 
 Generic method names require local context. APK-wide permissions cannot make
 an unrelated library call local Accessibility evidence. Comments and string
@@ -30,6 +38,16 @@ Same-class targets must be private, static or final. Local helper receivers must
 be freshly allocated with an exact declared type; ambiguous targets stay unresolved.
 These are syntactic source relationships, not a whole-program reachability graph.
 
+Eligible seeds are grouped by behavior, origin, containing method/class, indicator
+type, API action and provenance. Representatives retain all grouped references;
+duplicates and budget-rejected candidates remain in JSON. Builder settings default
+to 12 representatives per behavior, 8 expanded methods per behavior, 24 new nodes
+per expanded method and 2 third-party methods overall. Expansion prioritizes ownership
+and balances behaviors within a provenance tier. The 40-method/500-node hard limits
+remain authoritative. Framework calls are terminal boundary nodes; their implementation
+bodies are not traversed. Boundary does not imply that an unresolved receiver is known
+to be a framework API; `target_provenance` is separate from call-site ownership.
+
 `CALLS` to an `api_call` node establishes a call expression in a method. An edge
 to another `method` requires local resolution. `CONTAINS` a string does not prove
 it reaches any API. `PASSES_TO` is emitted only for flows returned by the existing
@@ -42,6 +60,9 @@ separate from evidence states. A partial graph must not be interpreted as proof
 that missing behavior is absent.
 
 JSON adds `investigation_seeds`, `matched_indicators` and optional `behavior_graph`.
+`source_ownership` records classification for recovered sources, independently of the
+coverage analyzer's unchanged application-package counts. Graph nodes carry call-site
+provenance, boundary metadata and explicit truncation limits.
 Existing report fields, profile outcomes, RAG inputs and LLM schemas are preserved.
 The CLI selects the highest-priority qualified API location for its existing
 reasoning path, while graph expansion can include other selected seed types.

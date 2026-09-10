@@ -7,6 +7,7 @@ from sentinel.threat_intel.models import ThreatKnowledge
 class ThreatKnowledgeBase:
     def __init__(self) -> None:
         self.records: list[ThreatKnowledge] = []
+        self.errors: list[str] = []
 
     def load_json(
         self,
@@ -20,11 +21,16 @@ class ThreatKnowledgeBase:
                 encoding="utf-8"
             )
         )
+        if not isinstance(data, list):
+            raise ValueError('Threat catalog must contain a JSON array')
 
-        self.records = [
-            ThreatKnowledge.model_validate(item)
-            for item in data
-        ]
+        self.records = []
+        self.errors = []
+        for index,item in enumerate(data):
+            try:
+                self.records.append(ThreatKnowledge.model_validate(item))
+            except (ValueError, TypeError):
+                self.errors.append(f'Invalid threat record at index {index}; skipped')
 
         return self.records
 

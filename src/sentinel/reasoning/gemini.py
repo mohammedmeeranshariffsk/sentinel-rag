@@ -14,6 +14,7 @@ class GeminiReasoningProvider:
     RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
     def __init__(self) -> None:
+        self.model = os.getenv('GEMINI_MODEL', self.MODEL)
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             raise ValueError("GEMINI_API_KEY is not configured")
@@ -28,7 +29,7 @@ class GeminiReasoningProvider:
         for attempt in range(self.MAX_ATTEMPTS):
             try:
                 response = self.client.models.generate_content(
-                    model=self.MODEL,
+                    model=self.model,
                     contents=prompt,
                     config=types.GenerateContentConfig(
                         temperature=0,

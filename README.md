@@ -1,195 +1,109 @@
 # SentinelRAG
 
-SentinelRAG is a threat-informed Android malware behavior investigation system that combines static program analysis, structured threat knowledge, retrieval-augmented generation (RAG), and evidence-grounded LLM reasoning.
+SentinelRAG is a static Android malware-behavior investigation prototype. It connects APK evidence, bounded program analysis, a local behavior catalog, optional RAG and structured Gemini reasoning into JSON and Markdown reports.
 
-It uses malware research to decide where to investigate, APK analysis to establish what is present, external knowledge to provide context, and deterministic validation to control what the final report may claim.
+It helps an analyst identify source-backed observations and the relationships that still need verification. It does not produce a definitive malware-family verdict, execute APKs or claim complete program recovery.
 
-```text
-Threat knowledge
-      ↓
-APK → decompile → extract evidence → match investigation seeds
-                                      ↓
-                              bounded BehaviorSlice
-                                      ↓
-                         retrieve external knowledge
-                                      ↓
-                         structured Gemini reasoning
-                                      ↓
-                         deterministic validation
-                                      ↓
-                         findings + JSON report
+## Architecture
+
+```mermaid
+flowchart TD
+  A[APK inspection and SHA256] --> B[Apktool and JADX]
+  B --> C[Artifact coverage and manifest]
+  C --> D[Evidence extraction]
+  K[Versioned local behavior catalog] --> E[Threat matching]
+  D --> E
+  E --> F[Qualified seeds and source ownership]
+  F --> G[Independent bounded behavior graphs]
+  G --> H[BehaviorContext: LOCAL and APK facts]
+  H --> I[Optional graph-aware RAG]
+  I --> J[Optional structured Gemini reasoning]
+  H --> V[Deterministic validation and finding policy]
+  J --> V
+  V --> R[Console, JSON and Markdown reports]
 ```
 
-An API name, permission, string, threat match, retrieved document, or LLM statement is never treated as a malware verdict by itself.
+External knowledge stays separate from APK observations. The model cannot add graph edges, source locations, evidence states, severity or family attribution. Reference validation checks exact canonical facts and relationships; arbitrary model narrative remains untrusted audit material.
 
-## Why SentinelRAG
+## Run
 
-Signature-only scanners are limited to known patterns, while unconstrained whole-application LLM analysis can lose provenance and invent evidence. SentinelRAG combines focused program analysis with threat-informed retrieval and structured reasoning:
-
-- threat knowledge produces investigation seeds;
-- bounded source context keeps APK evidence reviewable;
-- RAG provides relevant external context without turning it into APK proof;
-- deterministic validation separates observed evidence from hypotheses;
-- structured findings retain source and knowledge provenance.
-
-The project is primarily about malware behavior relationships, not broad generic Android vulnerability coverage.
-
-## What Works Today
-
-- APK inspection, SHA-256 hashing and analysis workspace creation.
-- Apktool and JADX decompilation orchestration.
-- Android manifest parsing.
-- API, method, Java string and permission extraction.
-- Generic capability extraction.
-- Structured local threat knowledge and deterministic threat matching.
-- Ranked investigation seeds.
-- Bounded `BehaviorSlice` source context and related strings.
-- Gemini embeddings, Qdrant indexing and Top-K security-knowledge retrieval.
-- Evidence-separated prompts and schema-constrained Gemini reasoning through a provider abstraction.
-- Deterministic validation of local APK, broader APK and external-knowledge references.
-- Structured evidence states and `SecurityFinding` models.
-- Concise analyst-oriented CLI output and optional JSON reports.
-- Bounded local Java flow recognition for straightforward `EditText` input through concatenation or `StringBuilder` into `Runtime.exec`.
-- Network-isolated unit tests with mocked Gemini calls.
-
-The verified test baseline is currently `113 passed`.
-
-## Demonstrated AndroGoat Flow
-
-SentinelRAG deterministically recognizes this bounded relationship:
+Use the existing Python environment with the project installed and external Apktool/JADX executables configured. No Android device or emulator is required.
 
 ```text
-EditText-derived input
-        ↓
-StringBuilder command construction with "ping "
-        ↓
-Runtime.getRuntime().exec(ip1)
+sentinel inspect sample.apk
+sentinel decompile sample.apk
+sentinel extract sample.apk
+sentinel analyze sample.apk --output-json reports/sample-analysis.json
+sentinel analyze sample.apk --output-json reports/sample-analysis.json --output-markdown reports/sample-analysis.md
+sentinel analyze sample.apk --no-llm --no-rag --graph-depth 1
+sentinel analyze sample.apk --profile docs/research/trickmo/extraction-profile.json
+sentinel knowledge status
+sentinel knowledge validate
 ```
 
-The resulting prototype finding is:
+`--profile` is repeatable. `--verbose` prints analysis ID and stage timings. Without an output path, reports go to `reports/<SHA256-prefix>-analysis.json` and `.md` under the repository. Relative input/profile/output paths resolve from the current directory. Configuration and bundled knowledge resolve from the repository.
 
-- Category: `USER_INPUT_TO_COMMAND_EXECUTION`
-- Evidence state: `OBSERVED`
-- Severity: `MEDIUM`
+Both `--no-llm` and `--no-rag` are required for fully offline analysis. Deterministic reports still work when optional AI services fail. Decompiler limitations remain explicit; missing code does not mean missing behavior.
 
-This establishes that user-derived text contributes to a value passed to `Runtime.exec`. It does not establish that the path executes at runtime, that a shell interprets separators, that command injection is exploitable, or that the application has malicious intent or belongs to a malware family.
+## Configuration
 
-## Evidence Model
+Set `APKTOOL_PATH` and `JADX_PATH` in the environment or project `.env`. For optional AI use `GEMINI_API_KEY`. Never commit credentials.
 
-SentinelRAG keeps three scopes separate:
-
-| Scope | Meaning |
+| Setting | Default |
 |---|---|
-| `LOCAL` | Evidence in the current BehaviorSlice or future Behavior Graph |
-| `APK` | Broader indicators elsewhere in the APK |
-| `KNOWLEDGE` | Retrieved external security or malware research |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` |
+| `GEMINI_EMBEDDING_MODEL` | `gemini-embedding-001` |
+| `SENTINEL_EMBEDDING_DIMENSIONS` | 768 |
+| `SENTINEL_GRAPH_DEPTH` | 1 (0?3) |
+| `SENTINEL_GRAPH_NODE_LIMIT` | 500 hard maximum |
+| `SENTINEL_GRAPH_METHOD_LIMIT` | 40 hard maximum |
+| `SENTINEL_BEHAVIOR_SEED_BUDGET` | 12 per behavior |
+| `SENTINEL_RETRIEVAL_TOP_K` | 3 (1?5) |
+| `SENTINEL_REASONING_ENABLED` | true |
+| `SENTINEL_RAG_ENABLED` | true |
 
-External knowledge never becomes APK evidence. A broader APK indicator does not automatically participate in the current local flow.
+Each reasoning investigation uses at most 160 graph nodes and 8 expanded methods, then selects at most 64 facts and 64 relationships for context. The serialized prompt payload is capped at 50,000 characters; oversized contexts fail safely. Gemini uses structured JSON, temperature 0, one candidate, a 2,048-token output budget, hidden thinking and no tools/function declarations. Model availability and quota depend on the configured provider account.
 
-Findings use these states:
+## Evidence contract
 
-| State | Meaning |
-|---|---|
-| `OBSERVED` | Directly supported by bounded APK artifacts or deterministic local analysis |
-| `INFERRED` | Derived from APK context but not directly established |
-| `SEMANTIC_SUSPECT` | Suggested by semantic context and requiring validation |
-| `CORRELATED` | Multiple APK observations support an investigation hypothesis |
-| `NOT_VERIFIABLE_FROM_APK` | The supplied APK evidence cannot establish the claim |
+- **LOCAL:** source-located facts and supported graph relationships in the bounded investigation.
+- **APK:** broader matches and manifest declarations. Co-occurrence does not imply local participation.
+- **KNOWLEDGE:** retrieved documents, with document/chunk IDs, source and relevance score. Never APK proof.
+- **LLM suggestions:** untrusted reasoning, hypotheses and proposed contradictions, retained separately for audit.
 
-The LLM can explain evidence and identify gaps. Program analysis and deterministic validation remain authoritative for claims about the APK. SentinelRAG requests concise structured summaries and does not expose chain-of-thought.
+Ownership (`APPLICATION`, `APPLICATION_CANDIDATE`, `UNKNOWN`, `THIRD_PARTY`, `FRAMEWORK`, `GENERATED`) is independent of evidence state and artifact coverage. Obfuscated helpers may gain candidate ownership through bounded resolved calls; strange namespaces alone prove nothing. Framework bodies are not recursively expanded.
 
-## Usage
+Source/sink annotations and expected behavior sequences are investigation hints, not taint paths. `PASSES_TO` requires the existing deterministic local-flow recognizer. Final severity is policy-based: indicator/co-occurrence reviews are INFO; the supported user-input-to-command flow is MEDIUM. Model confidence does not set either severity or final evidence confidence.
 
-Install the project in an existing Python 3.11+ environment and configure `GEMINI_API_KEY` in the environment or `.env` file. External Apktool and JADX executables must also be available for decompilation.
-The CLI resolves the repository `.env` from the installed source location, so invocation
-does not depend on the terminal's current directory. Relative APK, profile and report
-paths still resolve from the current directory.
+## Example report
 
-```text
-sentinel inspect app.apk
-sentinel decompile app.apk
-sentinel extract app.apk
-sentinel analyze app.apk
-sentinel analyze app.apk --output-json reports/app.json
-sentinel analyze app.apk --profile docs/research/trickmo/extraction-profile.json --output-json reports/trickmo-review.json
-sentinel analyze app.apk --profile profiles/family-a.json --profile profiles/violation-b.json
-```
-
-The `analyze` command continues across individual retrieval or Gemini failures and reports safe error summaries without printing prompts or credentials.
-It prints concise progress messages for the long decompilation, extraction, retrieval,
-reasoning, profile and report phases. Transient Gemini `429`/`5xx` failures receive one
-bounded retry before analysis continues without that model result.
-`--profile` is repeatable. Profile artifacts seed deterministic review and are
-reported separately from APK evidence; a match or APK-wide co-occurrence does not
-establish a behavior relationship or malware-family attribution.
-
-## Current Architecture
+A supported AndroGoat command flow can report:
 
 ```text
-src/sentinel/
-├── apk/                 APK metadata and workspace handling
-├── decompiler/          Apktool/JADX orchestration
-├── manifest/            manifest parsing
-├── extraction/          APIs, strings, methods, permissions, capabilities
-├── threat_intel/        structured knowledge loading and seed matching
-├── program_analysis/    bounded BehaviorSlice construction
-├── rag/                 documents, embeddings, Qdrant and retrieval
-├── reasoning/           provider abstraction, prompt and Gemini reasoning
-├── validation/          evidence scopes, states and bounded local flow
-├── findings/            deterministic structured finding construction
-├── profiles/            reusable extraction-profile loading and review
-├── reporting/           JSON report models
-└── cli/                 commands and analyst output
+[MEDIUM] Investigation: Process and Command Execution
+Evidence State: OBSERVED
+Source: ip2.getText().toString()
+Transform: StringBuilder command construction ("ping ")
+Sink: Runtime.getRuntime().exec(ip1)
+Exploitability and command-injection impact require additional validation.
 ```
 
-Empty placeholder packages may exist from earlier development; the list above describes active implementation.
+The Markdown report includes identity, coverage, manifest attack surface, matches, seeds, behavior investigations, source relationships, retrieved knowledge, findings, unresolved relationships and limitations. JSON retains detailed references and untrusted structured reasoning. APK strings are escaped in Markdown.
 
-## Planned Architecture
+## Knowledge and profiles
 
-The next major milestone is the **Malware Behavior Knowledge Model + Behavior Matcher**. It comes before broad generic vulnerability-flow expansion.
+The versioned starter catalog covers 35 investigation areas, including Accessibility, collection, persistence, dynamic loading, network communication, device administration and reflection. These are analyst-authored templates with benign explanations, not a validated signature set. The existing JSON threat records remain supported. No automatic web ingestion or comprehensive malware-family database is claimed.
 
-Planned progression:
+TrickMo profile matches remain research/correlation inputs. The generic profile verification-template executor is not implemented. A matching permission, API or string cannot establish the required behavior sequence or family identity.
 
-1. Define provenance-aware behavior and indicator records.
-2. Correlate multiple indicators and relationships in a Behavior Matcher.
-3. Construct a call graph.
-4. Expand bounded data-flow and Android lifecycle/component context.
-5. Build a Behavior Graph as the primary APK context for reasoning.
-6. Retrieve threat knowledge for matched behaviors.
-7. Expand LLM behavior analysis and deterministic validation.
-8. Produce richer malware-analysis reports.
-9. Add bounded, evidence-driven investigation tools.
-10. Add threat-research ingestion, evaluation and production observability.
+## Tests and limitations
 
-The future Behavior Graph should combine caller/callee relationships, sources and sinks, method boundaries, callbacks, Android lifecycle entry points, component and Intent transitions, relevant permissions and strings, endpoints, and file/class provenance. The complete decompiled APK will not be sent to the LLM.
+```powershell
+& "C:\Users\meera\Desktop\AI engineering\venv\Scripts\python.exe" -m pytest -q
+```
 
-The local knowledge repository is expected to evolve toward behavior, family, technique, campaign and indicator records plus provenance-aware malware/security documents. Research-derived knowledge will guide investigation; it will never prove behavior in an APK.
+Normal tests block network access and mock providers. Real samples are analyzed statically only; never install or execute malware.
 
-## Current Limitations
+This is a portfolio prototype, not a production detection service. Static resolution is limited to supported Java layouts and direct source calls. Reflection, dynamic loading, Kotlin, ambiguous dispatch, incomplete JADX output and unobserved component transitions remain unresolved. The flow recognizer handles a narrow local command-construction pattern, not whole-program taint analysis. Catalog precision, source attribution and severity calibration need a larger labeled corpus. Embeddings are rebuilt in memory per run; persistent caching, robust decompiler isolation/timeouts and operational telemetry remain hardening work.
 
-- No call graph or Behavior Graph exists yet.
-- Threat matching is indicator-based rather than relationship-aware.
-- The local flow analyzer handles only simple bounded Java patterns.
-- Complete Java/Kotlin type resolution, interprocedural data flow, reflection and obfuscation handling are not implemented.
-- Android component, Intent and lifecycle relationships are not yet expanded into behavior context.
-- The local research corpus is small and its upstream authenticity is not automatically verified.
-- Static evidence does not prove runtime reachability or execution.
-- Malware-family attribution remains intentionally conservative.
-- Gemini features require API availability and quota; tests never call the live service.
-
-## Non-Goals for the Current Prototype
-
-- Full whole-program taint analysis or perfect call-graph recovery.
-- Dynamic instrumentation or automated exploit generation.
-- Autonomous malware verdicts or automatic family attribution.
-- Scanning every OWASP vulnerability category.
-- Sending an entire APK source tree to an LLM.
-- Replacing deterministic program analysis with an LLM.
-- Building hundreds of regex rules.
-- Unrestricted autonomous agents.
-
-See [PROJECT_PLAN.md](PROJECT_PLAN.md), [PROJECT_STATE.md](PROJECT_STATE.md), and [DECISIONS.md](DECISIONS.md) for the authoritative roadmap, current checkpoint, and architectural rationale.
-
-## License
-
-See [LICENSE](LICENSE).
+See [PROJECT_STATE.md](PROJECT_STATE.md), [PROJECT_PLAN.md](PROJECT_PLAN.md), [DECISIONS.md](DECISIONS.md), and [investigation graph details](docs/investigation-graphs.md).

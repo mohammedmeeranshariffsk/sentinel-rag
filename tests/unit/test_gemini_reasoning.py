@@ -180,20 +180,15 @@ def test_analyze_integration_continues_on_failure(tmp_path, monkeypatch, sdk, fa
         indexer.index.side_effect = RuntimeError("private error")
     if failure == "retrieve":
         retriever.retrieve.side_effect = RuntimeError("private error")
-    result = dict(
-        hypothesis="Command execution", behavior="Code invokes exec.",
-        security_assessment="Insufficient evidence of malicious intent.", confidence=0.3,
-        apk_evidence_refs=["apk:behavior_slice"],
-        knowledge_refs=[] if failure in ("index", "retrieve") else ["knowledge:c1"],
-        missing_evidence=["Runtime reachability"], remediation=None,
-        reasoning_summary="The snippet alone does not establish malicious intent or family attribution.",
-    )
     model = sdk[1].models.generate_content
-    model.return_value = completed(json.dumps(result))
-    if failure == "generation":
-        model.side_effect = [RuntimeError("private error"), completed(json.dumps(result))]
-    if failure == "validation":
-        model.side_effect = [completed(json.dumps({**result, "confidence": 2})), completed(json.dumps(result))]
+    def respond(**kwargs):
+        if failure == 'generation' and model.call_count == 1:
+            raise RuntimeError('private error')
+        data = json.loads(kwargs['contents'].split('\nINPUT DATA:\n')[1])['apk_evidence']
+        return completed(json.dumps(dict(behavior_id=data['behavior_id'],behavior_name=data['behavior_name'],
+            summary='Insufficient evidence of malicious intent.',
+            confidence=2 if failure == 'validation' and model.call_count == 1 else 0.3)))
+    model.side_effect = respond
     if failure == "init":
         sdk[0].side_effect = ValueError("private error")
     json_path = tmp_path / "reports" / "analysis.json"
@@ -208,7 +203,8 @@ def test_analyze_integration_continues_on_failure(tmp_path, monkeypatch, sdk, fa
         assert "No validated findings." in output.output
         model.assert_not_called()
         return
-    assert report["analysis_metadata"]["status"] == ("complete" if failure is None else "partial")
+    # The fixture is an empty APK without a recovered manifest: coverage is partial.
+    assert report["analysis_metadata"]["status"] == "partial"
     assert output.output.count("Retrieved Security Knowledge") == (1 if failure == "seed" else 2)
     assert "Seed 1" in output.output
     assert "private" not in output.output
@@ -220,10 +216,12 @@ def test_analyze_integration_continues_on_failure(tmp_path, monkeypatch, sdk, fa
         assert "# Validated Findings" in output.output
         assert "Insufficient evidence of malicious intent" in output.output
         assert model.call_count == (1 if failure == "seed" else 2)
-        assert len(report["validated_findings"]) == (1 if failure in ("seed", "generation", "validation") else 2)
+        # Optional AI failure must no longer suppress deterministic findings.
+        assert len(report["validated_findings"]) == (1 if failure == "seed" else 2)
         data = json.loads(model.call_args.kwargs["contents"].split("\nINPUT DATA:\n")[1])
         assert bool(data["external_knowledge"]) == (failure not in ("index", "retrieve"))
-        assert "apk:behavior_slice" in data["apk_evidence"]
+        assert any(f['scope']=='LOCAL' for f in data['apk_evidence']['facts'])
+        assert 'relationships' in data['apk_evidence']
     else:
         assert "Security reasoning unavailable" in output.output
         model.assert_not_called()

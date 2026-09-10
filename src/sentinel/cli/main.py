@@ -1,5 +1,9 @@
 from pathlib import Path
 from collections.abc import Callable
+from collections import Counter
+from dataclasses import asdict
+from time import perf_counter
+import xml.etree.ElementTree as ET
 
 from dotenv import load_dotenv
 
@@ -8,11 +12,16 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 load_dotenv(PROJECT_ROOT / ".env")
 
 import typer
+import logging
+from sentinel.config.settings import AnalysisOptions
+from sentinel.analysis.investigation import BehaviorInvestigator
+from sentinel.threat_intel.starter_catalog import starter_records, catalog_documents, merge_catalog
 
 from sentinel.apk.inspector import APKInspector
 from sentinel.analysis.artifact_coverage import ArtifactCoverage, ArtifactCoverageAnalyzer
 from sentinel.decompiler.pipeline import DecompilerPipeline
 from sentinel.extraction.pipeline import ExtractionPipeline
+from sentinel.extraction.models import ExtractionResult, ExtractedPermission
 from sentinel.manifest.analyzer import ManifestAnalyzer
 from sentinel.threat_intel import ThreatKnowledgeBase, ThreatMatcher
 
@@ -186,7 +195,7 @@ def run_extraction(
     context = APKInspector().inspect(apk)
 
     notify("Running Apktool and JADX decompilation")
-    decompilation = DecompilerPipeline().run(context)
+    decompilation = DecompilerPipeline().run(context, allow_failed=True)
 
     context.manifest_path = decompilation.manifest_path
     context.source_path = decompilation.source_path
@@ -196,19 +205,25 @@ def run_extraction(
 
     if context.manifest_path is not None:
         notify("Parsing Android manifest")
-        manifest = ManifestAnalyzer().analyze(
-            context.manifest_path
-        )
-
-        context.package_name = manifest.package_name
-        context.version_name = manifest.version_name
-        context.version_code = manifest.version_code
+        try:
+            manifest = ManifestAnalyzer().analyze(context.manifest_path)
+            context.package_name = manifest.package_name
+            context.version_name = manifest.version_name
+            context.version_code = manifest.version_code
+        except (ET.ParseError,OSError,ValueError):
+            notify('Manifest parsing unavailable; retaining explicit coverage limitation')
+            context.manifest_path = decompilation.manifest_path = None
+            decompilation.errors.append('Recovered manifest could not be parsed')
 
     notify("Extracting APIs, methods, strings, permissions and capabilities")
-    extraction = ExtractionPipeline().run(
-        context=context,
-        manifest=manifest,
-    )
+    pipeline = ExtractionPipeline()
+    if context.source_path and context.source_path.is_dir():
+        extraction = pipeline.run(context=context,manifest=manifest)
+    else:
+        extraction = ExtractionResult(permissions=[ExtractedPermission(permission=p)
+            for p in (manifest.permissions if manifest else [])])
+        extraction.capabilities = pipeline.capability_extractor.extract(
+            apis=[],strings=[],permissions=extraction.permissions)
 
     if include_decompilation:
         return context, manifest, extraction, decompilation
@@ -282,6 +297,11 @@ def analyze_apk(
         readable=True,
     ),
     output_json: Path | None = typer.Option(None, '--output-json', dir_okay=False),
+    output_markdown: Path | None = typer.Option(None, '--output-markdown', dir_okay=False),
+    graph_depth: int | None = typer.Option(None, '--graph-depth', min=0, max=3),
+    no_llm: bool = typer.Option(False, '--no-llm'),
+    no_rag: bool = typer.Option(False, '--no-rag'),
+    verbose: bool = typer.Option(False, '--verbose'),
     profile: list[Path] = typer.Option(
         [], "--profile", exists=True, file_okay=True, dir_okay=False, readable=True,
         help="Extraction profile JSON. Repeat this option to review multiple profiles.",
@@ -291,23 +311,44 @@ def analyze_apk(
     Investigate APK evidence using retrieved context and security reasoning.
     """
 
+    options = AnalysisOptions()
+    if graph_depth is not None:
+        options.graph_depth = graph_depth
+    if no_llm:
+        options.reasoning_enabled = False
+    if no_rag:
+        options.rag_enabled = False
+    analysis_started = perf_counter()
+    stage_started, stage_name, timings = analysis_started, 'initialization', {}
+
     def show_progress(message: str) -> None:
+        nonlocal stage_started, stage_name
+        now = perf_counter()
+        timings[stage_name] = timings.get(stage_name,0)+now-stage_started
+        stage_started,stage_name = now,message
+        logging.getLogger('sentinel.analysis').info('analysis_stage', extra={'stage':message})
         typer.echo(f"[progress] {message}")
 
     context, manifest, extraction, decompilation = run_extraction(
         apk, progress=show_progress, include_decompilation=True
     )
+    show_progress('Assessing artifact coverage')
     coverage = ArtifactCoverageAnalyzer().analyze(context, decompilation)
 
     show_progress("Matching extracted evidence to threat knowledge")
     knowledge_base = ThreatKnowledgeBase()
 
-    knowledge = knowledge_base.load_json(
-        Path(
-            "data/threat_intel/"
-            "android_threat_knowledge.json"
-        )
-    )
+    catalog_errors = []
+    try:
+        knowledge = knowledge_base.load_json(PROJECT_ROOT/'data/threat_intel/android_threat_knowledge.json')
+        if isinstance(knowledge_base.errors,list):
+            catalog_errors.extend(knowledge_base.errors)
+    except (ValueError,OSError,TypeError):
+        knowledge = []
+        catalog_errors.append('Local threat catalog unavailable; built-in analyst templates retained')
+
+    if isinstance(knowledge, list):
+        knowledge = merge_catalog(knowledge)
 
     matches = ThreatMatcher().match(
         extraction=extraction,
@@ -316,7 +357,9 @@ def analyze_apk(
 
     show_progress("Selecting source-located investigation seeds")
     source_index = SourceIndex.from_extraction(extraction)
-    seed_builder = InvestigationSeedBuilder(extraction, getattr(context, "package_name", None), source_index)
+    seed_builder = InvestigationSeedBuilder(
+        extraction, getattr(context, "package_name", None), source_index, manifest=manifest, max_seeds_per_behavior=options.behavior_seed_budget
+    )
     seeds = seed_builder.from_threats(matches)
 
     report = SecurityReport(
@@ -331,24 +374,29 @@ def analyze_apk(
             "apis", "strings", "methods", "permissions", "capabilities"
         )},
         artifact_coverage=coverage,
+        manifest_evidence=asdict(manifest) if manifest else {},
         investigation_seeds=seeds,
+        source_ownership=list(seed_builder.ownership.records.values()),
         matched_indicators=matches,
         analysis_metadata=AnalysisMetadata(
-            reasoning_model=GeminiReasoningProvider.MODEL, seed_count=len(matches)
+            reasoning_model=GeminiReasoningProvider.MODEL, seed_count=len(matches), configuration=options.model_dump()
         ),
     )
 
     show_progress("Preparing retrieved security knowledge")
-    documents = KnowledgeDocumentLoader().load_json(
-        Path("data/knowledge/android_security.json")
-    )
-
+    report.analysis_metadata.errors.extend(catalog_errors)
     retriever = None
     try:
-        embedding_provider = GeminiEmbeddingProvider(dimension=768)
+        if not options.rag_enabled:
+            raise StopIteration
+        documents = KnowledgeDocumentLoader().load_json(
+            PROJECT_ROOT / Path("data/knowledge/android_security.json"))
+        if isinstance(documents,list) and isinstance(knowledge,list):
+            documents += catalog_documents(knowledge)
+        embedding_provider = GeminiEmbeddingProvider(dimension=options.embedding_dimensions)
         vector_store = QdrantVectorStore(
             collection_name="sentinel_security_analysis",
-            dimension=768,
+            dimension=options.embedding_dimensions,
             location=":memory:",
         )
         KnowledgeIndexer(
@@ -359,22 +407,25 @@ def analyze_apk(
             embedding_provider=embedding_provider,
             vector_store=vector_store,
         )
+    except StopIteration:
+        pass
     except Exception:
         typer.echo("Security knowledge retrieval unavailable; continuing with APK evidence.")
         report.analysis_metadata.errors.append("Knowledge index unavailable")
 
     show_progress("Preparing structured Gemini reasoning")
-    reasoning = None
     reasoning_provider = None
     try:
+        if not options.reasoning_enabled:
+            raise StopIteration
         reasoning_provider = GeminiReasoningProvider()
-        reasoning = SecurityReasoningAnalyzer(reasoning_provider)
+        report.analysis_metadata.reasoning_model = getattr(reasoning_provider,'model',GeminiReasoningProvider.MODEL)
+    except StopIteration:
+        pass
     except Exception as error:
         detail = safe_reasoning_error(error)
         typer.echo(f"Security reasoning unavailable: {detail}")
         report.analysis_metadata.errors.append(detail)
-
-    query_builder = RetrievalQueryBuilder()
 
     slice_builder = BehaviorSliceBuilder(
         context_lines=8
@@ -408,97 +459,27 @@ def analyze_apk(
     if not matches:
         typer.echo("No investigation seeds identified.")
 
+    investigator = BehaviorInvestigator(extraction, source_index, seed_builder.ownership, options, slice_builder)
+    records = {r.knowledge_id:r for r in knowledge} if isinstance(knowledge,list) else {}
     for match_index, match in enumerate(matches, start=1):
         try:
-            show_progress(
-                f"Reviewing threat match {match_index}/{len(matches)}: "
-                f"{match.knowledge_name}"
-            )
-            typer.echo("")
-            typer.echo(
-                f"[{match.knowledge_id}] "
-                f"{match.knowledge_name}"
-            )
-
-            typer.echo(f"Score: {match.score}")
-
-            selected = [seed for seed in seeds if seed.behavior_id == match.knowledge_id
-                        and seed.selected_for_investigation and seed.located
-                        and seed.indicator_type == "api"]
-            matching_apis = [api for seed in selected for api in extraction.apis
-                             if api.location.file == seed.file and api.location.line == seed.line
-                             and api.full_reference == seed.matched_value]
-
-            if not matching_apis:
-                typer.echo(
-                    "No qualified source-located API seed; matched indicators remain broader APK evidence."
-                )
-                continue
-
-            # Use the highest-priority qualified location, not extraction order.
-            api = matching_apis[0]
-            typer.echo(f"Seed provenance: {selected[0].source_provenance.value}; quality: {selected[0].quality.value}")
-
-            behavior_slice = slice_builder.build_from_api(
-                api
-            )
-
-            if behavior_slice is None:
-                typer.echo(
-                    "Unable to construct behavior slice."
-                )
-                continue
-
-            typer.echo("")
-            typer.echo("Behavior Slice")
-            typer.echo(f"File: {behavior_slice.file}")
-            typer.echo(f"Line: {behavior_slice.line}")
-            typer.echo(f"Seed: {behavior_slice.seed}")
-
-            if behavior_slice.related_strings:
-                typer.echo("Related Strings:")
-
-                for value in behavior_slice.related_strings:
-                    typer.echo(f"  - {value}")
-
-            query = query_builder.build(
-                threat_match=match,
-                behavior_slice=behavior_slice,
-            )
-
-            retrieved = []
-            if retriever is not None:
-                try:
-                    retrieved = retriever.retrieve(query=query, limit=3)
-                except Exception:
-                    typer.echo("Security knowledge retrieval failed for this seed.")
-                    report.analysis_metadata.errors.append(f"{match.knowledge_id}: retrieval failed")
-
-            typer.echo("")
+            show_progress(f"Building behavior graph {match_index}/{len(matches)}: {match.knowledge_name}")
+            typer.echo(f"\n[{match.knowledge_id}] {match.knowledge_name} ? indicator score {match.score}")
+            investigation = investigator.investigate(match,seeds,context,coverage,manifest,
+                records.get(match.knowledge_id),retriever,reasoning_provider,show_progress)
+            report.behavior_investigations.append(investigation)
+            report.validated_findings.extend(investigation.validated_findings)
+            report.analysis_metadata.errors.extend(investigation.errors)
             typer.echo("Retrieved Security Knowledge")
-
-            for result in retrieved:
-                typer.echo(
-                    f"  [{result.score:.4f}] "
-                    f"{result.title}"
-                )
-
-            if reasoning is not None:
-                try:
-                    assessment = reasoning.analyze(match, behavior_slice, retrieved)
-                    validation = EvidenceValidator().validate(match, behavior_slice, retrieved, assessment)
-                    finding = FindingBuilder().build(match, behavior_slice, retrieved, assessment, validation)
-                    report.validated_findings.append(finding)
-                except Exception as error:
-                    # Do not print raw provider errors or unvalidated model output.
-                    detail = safe_reasoning_error(error)
-                    typer.echo(f"Security reasoning unavailable: {detail}")
-                    report.analysis_metadata.errors.append(f"{match.knowledge_id}: {detail}")
-                    continue
-
-
-        except Exception:
-            typer.echo("Investigation seed failed; continuing analysis.")
+            for item in investigation.retrieved_knowledge:
+                typer.echo(f"  [{item.score:.4f}] {item.title} (KNOWLEDGE context only)")
+            for error in investigation.errors:
+                typer.echo(error)
+            typer.echo(f"Behavior graph: {len(investigation.graph.nodes)} nodes / {len(investigation.graph.edges)} edges; "
+                       f"reasoning: {investigation.reasoning_status}; retrieval: {investigation.retrieval_status}")
+        except Exception as error:
+            detail = safe_reasoning_error(error)
+            typer.echo(f"Investigation seed failed; continuing analysis. {detail}")
             report.analysis_metadata.errors.append(f"{match.knowledge_id}: seed failed")
 
     if profile:
@@ -515,7 +496,7 @@ def analyze_apk(
                 loaded_profile, profile_path, extraction, manifest
             )
             report.profile_analyses.append(profile_analysis)
-            report.investigation_seeds = seed_builder.prioritize(
+            report.investigation_seeds = seed_builder.select(
                 report.investigation_seeds + seed_builder.from_profile(profile_analysis)
             )
             report.analysis_metadata.profile_count += 1
@@ -570,21 +551,37 @@ def analyze_apk(
             )
 
     show_progress("Building bounded APK behavior graph")
-    report.behavior_graph = BehaviorGraphBuilder().build(
+    report.behavior_graph = BehaviorGraphBuilder(max_depth=options.graph_depth,
+        max_nodes=options.graph_node_limit,max_methods=options.graph_method_limit).build(
         context, extraction, report.investigation_seeds, coverage, source_index,
         [item.accessibility_graph for item in report.profile_analyses if item.accessibility_graph],
+        ownership=seed_builder.ownership,
     )
     selected_seeds = [s for s in report.investigation_seeds if s.selected_for_investigation]
     typer.echo("\n# Investigation Seeds")
     typer.echo(f"Selected: {len(selected_seeds)}; located: {sum(s.located for s in selected_seeds)}; "
                f"unlocated: {sum(not s.located for s in selected_seeds)}")
     typer.echo(f"Matched candidates retained: {len(report.investigation_seeds)}")
+    typer.echo(f"Grouped duplicates: {sum(s.duplicate_count for s in selected_seeds)}")
+    for provenance in dict.fromkeys(s.source_provenance for s in report.investigation_seeds):
+        candidates = [s for s in report.investigation_seeds if s.source_provenance == provenance]
+        typer.echo(f"{provenance.value}: {len(candidates)} candidates; "
+                   f"{sum(s.selected_for_investigation for s in candidates)} selected")
     for seed in selected_seeds[:10]:
         typer.echo(f"- {seed.source_provenance.value} / {seed.quality.value}: {seed.matched_value}")
+        typer.echo(f"  Ownership confidence: {seed.provenance_confidence:.2f}; "
+                   + "; ".join(seed.provenance_reasons))
     graph = report.behavior_graph
     typer.echo("\n# Behavior Graph")
     typer.echo(f"Nodes: {len(graph.nodes)}; edges: {len(graph.edges)}; "
                f"unresolved relationships: {len(graph.unresolved_relationships)}")
+    typer.echo(f"Expanded methods by provenance: {graph.expanded_methods_by_provenance}")
+    typer.echo(f"Nodes by source provenance: {dict(Counter(n.source_provenance.value for n in graph.nodes))}")
+    typer.echo(f"Hard graph limit reached: {graph.limit_reached}")
+    for limitation in graph.analysis_limitations[:5]:
+        typer.echo(f"- Analysis limitation: {limitation}")
+    if len(graph.analysis_limitations) > 5:
+        typer.echo(f"- {len(graph.analysis_limitations)-5} additional limitations retained in JSON")
     labels = {node.node_id: node.label for node in graph.nodes}
     for edge in graph.edges[:8]:
         typer.echo(f"- {labels[edge.source][:100]} -> {edge.relation.value} -> {labels[edge.target][:100]}")
@@ -597,11 +594,43 @@ def analyze_apk(
 
     if report.analysis_metadata.errors:
         report.analysis_metadata.status = "partial"
-    if output_json is not None:
-        show_progress("Writing JSON report")
-        report.write_json(output_json)
-        typer.echo(f"\nJSON report: {output_json}")
+    if coverage.analysis_mode == 'partial':
+        report.analysis_metadata.status = 'partial'
+    show_progress("Writing reports")
+    report.analysis_metadata.stage_timings = {**timings,'total_before_reports':perf_counter()-analysis_started}
+    output_json = output_json or PROJECT_ROOT/'reports'/f'{context.sha256[:12]}-analysis.json'
+    output_markdown = output_markdown or output_json.with_suffix('.md')
+    report.write_json(output_json)
+    report.write_markdown(output_markdown)
+    typer.echo(f"\nJSON report: {output_json}")
+    typer.echo(f"Markdown report: {output_markdown}")
+    if verbose:
+        typer.echo(f"Analysis ID: {report.analysis_metadata.analysis_id}; timings: {report.analysis_metadata.stage_timings}")
     show_progress("Analysis complete")
+
+
+knowledge_app = typer.Typer(help='Inspect and validate local investigation templates; no network calls.')
+app.add_typer(knowledge_app,name='knowledge')
+
+
+@knowledge_app.command('status')
+def knowledge_status():
+    typer.echo(f'{len(starter_records())} built-in behavior templates; schema 1.0; analyst-authored, not malware signatures.')
+
+
+@knowledge_app.command('validate')
+def knowledge_validate():
+    base = ThreatKnowledgeBase()
+    try:
+        records = base.load_json(PROJECT_ROOT/'data/threat_intel/android_threat_knowledge.json')
+        errors = base.errors
+    except (ValueError,OSError,TypeError):
+        records,errors = [],['Local threat catalog could not be loaded']
+    for error in errors:
+        typer.echo(error)
+    typer.echo(f'Validated {len(records)} local records and {len(starter_records())} built-in templates.')
+    if errors:
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":

@@ -9,14 +9,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from sentinel.program_analysis.source_index import SourceIndex
-
-
-class SourceProvenance(str, Enum):
-    APPLICATION = "APPLICATION"
-    UNKNOWN = "UNKNOWN"
-    THIRD_PARTY = "THIRD_PARTY"
-    FRAMEWORK = "FRAMEWORK"
-    GENERATED = "GENERATED"
+from sentinel.program_analysis.source_ownership import SourceProvenance, SourceOwnershipClassifier, PROVENANCE_ORDER
 
 
 class IndicatorType(str, Enum):
@@ -45,6 +38,9 @@ class SelectionReason(str, Enum):
     GENERATED = "GENERATED_CODE_EXCLUDED"
     UNVERIFIED = "UNVERIFIED_PROFILE_CANDIDATE"
     NONCODE = "NOT_IN_SOURCE_CODE"
+    FRAMEWORK = "FRAMEWORK_BOUNDARY_ONLY"
+    DUPLICATE = "GROUPED_DUPLICATE"
+    BUDGET = "BEHAVIOR_SEED_BUDGET"
 
 
 class InvestigationSeed(BaseModel):
@@ -61,6 +57,14 @@ class InvestigationSeed(BaseModel):
     evidence_scope: Literal["LOCAL", "APK"] = "APK"
     evidence_refs: list[str] = Field(default_factory=list)
     source_provenance: SourceProvenance = SourceProvenance.UNKNOWN
+    provenance_confidence: float = Field(default=0,ge=0,le=1)
+    provenance_reasons: list[str] = Field(default_factory=list)
+    ownership_evidence_refs: list[str] = Field(default_factory=list)
+    representative_seed_id: str | None = None
+    duplicate_count: int = 0
+    grouped_evidence_refs: list[str] = Field(default_factory=list)
+    selection_eligible: bool | None = None
+    eligibility_reason: SelectionReason | None = None
     quality: SeedQuality = SeedQuality.WEAK
     corroborating_evidence_refs: list[str] = Field(default_factory=list)
     selected_for_investigation: bool = False
@@ -72,28 +76,17 @@ class InvestigationSeedBuilder:
     # Examples augment a context/specificity policy; unqualified one-word names
     # are weak by default, rather than all other names being automatically strong.
     GENERIC = {"performAction", "onReceive", "run", "start", "execute", "handle", "process", "send", "read", "write", "getText", "exec", "loadClass"}
-    FRAMEWORK_PREFIXES = ("android.", "androidx.", "java.", "javax.", "kotlin.", "kotlinx.")
-
-    def __init__(self, extraction, application_package=None, source_index=None):
+    def __init__(self, extraction, application_package=None, source_index=None, manifest=None, ownership=None, max_seeds_per_behavior=12):
+        if max_seeds_per_behavior < 1:
+            raise ValueError('Behavior seed budget must be positive')
+        self.max_seeds_per_behavior = max_seeds_per_behavior
         self.extraction = extraction
         self.package = application_package
         self.index = source_index or SourceIndex.from_extraction(extraction)
+        self.ownership = ownership or SourceOwnershipClassifier(self.index,application_package,manifest)
 
     def provenance(self, file):
-        if not file:
-            return SourceProvenance.UNKNOWN
-        name = Path(file).name
-        if name in {"R.java", "R.kt", "BuildConfig.java", "BuildConfig.kt"} or name.startswith("R$"):
-            return SourceProvenance.GENERATED
-        package = self.index.packages.get(str(Path(file)))
-        if not package:
-            return SourceProvenance.UNKNOWN
-        if self.package and (package == self.package or package.startswith(self.package + '.')):
-            return SourceProvenance.APPLICATION
-        if package.startswith(self.FRAMEWORK_PREFIXES):
-            return SourceProvenance.FRAMEWORK
-        # Different namespace is a third-party candidate, not proof of authorship.
-        return SourceProvenance.THIRD_PARTY if self.package else SourceProvenance.UNKNOWN
+        return self.ownership.get(file).source_provenance
 
     def _seed(self, behavior, origin, kind, value, file=None, line=None,
               class_name=None, method=None, ref=None, eligible=True):
@@ -109,6 +102,9 @@ class InvestigationSeedBuilder:
             class_name=containing.owner if containing else class_name,
             containing_method=containing.name if containing else method,
             evidence_refs=refs, source_provenance=provenance,
+            provenance_confidence=self.ownership.get(file).provenance_confidence,
+            provenance_reasons=self.ownership.get(file).provenance_reasons,
+            ownership_evidence_refs=self.ownership.get(file).evidence_refs,
         )
         terminal = value.rsplit('.',1)[-1]
         distinctive = kind in {"string", "component", "permission", "capability"} or (
@@ -160,6 +156,8 @@ class InvestigationSeedBuilder:
             seed.quality, seed.selection_reason = SeedQuality.GENERATED, SelectionReason.GENERATED
         elif not eligible:
             seed.selection_reason = SelectionReason.UNVERIFIED
+        elif provenance == SourceProvenance.FRAMEWORK:
+            seed.quality, seed.selection_reason = SeedQuality.CONTEXTUAL, SelectionReason.FRAMEWORK
         elif not located:
             seed.quality, seed.selection_reason = SeedQuality.BROADER, SelectionReason.BROADER
             seed.selected_for_investigation, seed.match_strength = True, 0.2
@@ -190,7 +188,7 @@ class InvestigationSeedBuilder:
                             getattr(loc, "class_name", None), getattr(loc, "method_name", None)))
                     seeds.extend(found or [self._seed(match.knowledge_id, "THREAT_MATCH", kind, value)])
             seeds.extend(self._seed(match.knowledge_id, "THREAT_MATCH", "permission", value) for value in match.matched_permissions)
-        return self.prioritize(seeds)
+        return self.select(seeds)
 
     def from_profile(self, analysis):
         seeds = []
@@ -206,13 +204,49 @@ class InvestigationSeedBuilder:
             seeds.append(self._seed(analysis.family_id, "PROFILE_MATCH", kind, value,
                 match.file, match.line, ref=match.reference,
                 eligible=match.classification in {"reported_exact_token", "reported_behavior", "behavior_derived_search_target"}))
-        return self.prioritize(seeds)
+        return self.select(seeds)
+
+    def select(self,seeds):
+        seeds = list({s.seed_id:s for s in seeds}.values())
+        groups = {}
+        for seed in seeds:
+            if seed.selection_eligible is None:
+                seed.selection_eligible = seed.selected_for_investigation
+                seed.eligibility_reason = seed.selection_reason
+            seed.selected_for_investigation = seed.selection_eligible
+            seed.selection_reason = seed.eligibility_reason
+            seed.representative_seed_id = None
+            seed.duplicate_count = 0
+            seed.grouped_evidence_refs = []
+        ordered = self.prioritize(seeds)
+        for seed in ordered:
+            if not seed.selection_eligible:
+                continue
+            method = self.index.containing(seed.file,seed.line) if seed.located else None
+            key = (seed.behavior_id,seed.origin,method.key if method else seed.file or seed.seed_id,
+                   seed.indicator_type,seed.matched_value.rsplit('.',1)[-1] if seed.indicator_type=='api' else seed.matched_value,
+                   seed.source_provenance)
+            representative = groups.setdefault(key,seed)
+            seed.representative_seed_id = representative.seed_id
+            representative.grouped_evidence_refs = list(dict.fromkeys(representative.grouped_evidence_refs+seed.evidence_refs))
+            if representative is not seed:
+                representative.duplicate_count += 1
+                seed.selected_for_investigation = False
+                seed.selection_reason = SelectionReason.DUPLICATE
+        counts = {}
+        for seed in ordered:
+            if not seed.selected_for_investigation:
+                continue
+            count = counts.get(seed.behavior_id,0)
+            if count >= self.max_seeds_per_behavior:
+                seed.selected_for_investigation = False
+                seed.selection_reason = SelectionReason.BUDGET
+            else:
+                counts[seed.behavior_id] = count+1
+        return self.prioritize(ordered)
 
     @staticmethod
     def prioritize(seeds):
-        order = {SourceProvenance.APPLICATION: 0, SourceProvenance.UNKNOWN: 1,
-                 SourceProvenance.THIRD_PARTY: 2, SourceProvenance.FRAMEWORK: 2,
-                 SourceProvenance.GENERATED: 4}
         return sorted({s.seed_id:s for s in seeds}.values(), key=lambda s: (
-            not s.selected_for_investigation, order[s.source_provenance] if s.located else 3,
+            not s.selected_for_investigation, PROVENANCE_ORDER[s.source_provenance] if s.located else 6,
             -s.match_strength, s.file or "", s.line or 0, s.seed_id))

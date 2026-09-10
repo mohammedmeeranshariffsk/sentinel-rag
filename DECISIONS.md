@@ -120,3 +120,55 @@ Transient Gemini status codes `429`, `500`, `502`, `503`, and `504` receive one 
 retry. Persistent provider failure remains visible as a safe error and does not stop other
 seeds, profiles, deterministic validation or report generation. Retries cannot promote
 model output into evidence or change deterministic outcomes.
+
+## ADR-021 — Ownership hints and bounded expansion remain separate from APK facts
+
+Recovered source ownership uses application subpackages and exact manifest component
+resolution as strong signals. Unknown namespaces are not automatically third-party.
+APPLICATION_CANDIDATE records auditable heuristic ownership, using corroborated local
+signals or at most two already-resolved call hops. Recognized framework, library and
+generated classes are not promoted by propagation. Ownership never changes EvidenceState
+or the authoritative ArtifactCoverage counts and limitations.
+
+Investigation selection groups repeated actions within a behavior/method and preserves
+every candidate and evidence reference. Configurable behavior budgets and provenance
+priority focus expansion on application/candidate code. Framework implementation bodies
+are excluded; APK call expressions remain boundary nodes. Global 40-method/500-node
+limits and explicit unresolved/truncation records remain in force. These decisions add
+no malware-family attribution, RAG inputs or LLM-derived graph relationships.
+
+## ADR-022 — Independent behavior investigations are the reasoning boundary
+
+Each matched behavior receives its own bounded BehaviorGraph and BehaviorContext, reusing
+one source index, reverse-call index, extraction inventory and ownership classifier.
+The APK-wide graph is a report summary, never the model input. Context retains LOCAL/APK
+scope, canonical fact/edge IDs, unresolved relationships and authoritative coverage.
+Expected behavior sequences and source/sink annotations are investigation hints only.
+
+Graph-derived queries retrieve external KNOWLEDGE records with source/document/chunk
+provenance and relevance scores. Neither retrieval relevance nor model confidence is
+evidence confidence. The starter catalog is a versioned analyst-authored specification,
+not a set of calibrated malware signatures or a family-attribution engine.
+
+## ADR-023 — Validate canonical claims; preserve deterministic offline findings
+
+BehaviorReasoningResult supplements the compatible SecurityReasoningResult interface.
+Observed facts must copy supplied IDs and canonical values; supported relationships
+must match supplied edges exactly. Unknown IDs, invented relationships and invalid source
+locations are rejected. Arbitrary model narrative cannot be semantically proven by a
+reference check, so it remains explicitly untrusted audit material rather than published
+APK facts. Model hypotheses/contradictions never create evidence or family attribution.
+
+Finding policy runs independently of provider success. Indicator/co-occurrence reviews
+remain INFO, and the supported local user-input-to-command policy remains MEDIUM/OBSERVED.
+Coverage gaps cannot be treated as behavior absence. JSON and escaped Markdown reports
+remain available with both AI options disabled. Provider failure is a reportable limitation,
+not a reason to discard deterministic analysis. This is an integrated prototype; operational
+isolation, caching, semantic coverage and accuracy calibration remain separate work.
+
+The Gemini wire schema retains typed JSON structure and numeric confidence bounds.
+Array/string size annotations that caused HTTP 400 in the nested behavior schema are
+removed from the wire representation and enforced by local Pydantic validation instead.
+This was checked with synthetic provider requests. No function/tool declarations or AFC
+configuration are introduced. Catalog merges also revalidate nested relationship models;
+unchecked model-copy updates must not replace typed relationships with dictionaries.

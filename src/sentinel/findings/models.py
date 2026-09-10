@@ -35,6 +35,10 @@ class KnowledgeReference(BaseModel):
 
 
 class SecurityFinding(BaseModel):
+    behavior_id: str | None = None
+    graph_evidence_refs: list[str] = Field(default_factory=list)
+    coverage_limitations: list[str] = Field(default_factory=list)
+    unresolved_relationships: list[str] = Field(default_factory=list)
     finding_id: str
     title: str
     category: str
