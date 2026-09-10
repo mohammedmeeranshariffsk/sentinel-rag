@@ -172,3 +172,89 @@ removed from the wire representation and enforced by local Pydantic validation i
 This was checked with synthetic provider requests. No function/tool declarations or AFC
 configuration are introduced. Catalog merges also revalidate nested relationship models;
 unchecked model-copy updates must not replace typed relationships with dictionaries.
+
+ADR-024 — Raw threat matches require behavior qualification
+
+Threat matching and behavior qualification are separate stages.
+
+A raw permission, API, method, string, component or other indicator may remain part of the APK evidence inventory without justifying construction of a BehaviorInvestigation.
+
+The pipeline is:
+
+RAW INDICATOR
+    ↓
+BEHAVIOR HYPOTHESIS
+    ↓
+QUALIFICATION
+    ↓
+INVESTIGATION
+
+Generic indicators require behavior-specific corroboration. Examples include INTERNET, getText, onReceive, enqueue, commit, getSystemService and generic method names.
+
+Qualification permits investigation. It does not establish malicious intent, runtime behavior, impact or malware-family attribution.
+
+Rejected qualification must not delete the underlying raw evidence.
+
+ADR-025 — Behavior qualification will evolve toward declarative relationship-aware rules
+
+The current qualification layer is an intermediate implementation.
+
+As the behavior catalog grows, qualification must not become a large collection of hard-coded behavior-specific conditions.
+
+Behavior Knowledge Model v2 should support declarative concepts such as:
+
+strong anchors,
+supporting indicators,
+generic indicators,
+sources,
+sinks,
+context indicators,
+required relationships,
+optional relationships,
+qualification policy,
+false-positive context,
+provenance and version.
+
+A generic qualification engine should interpret these definitions.
+
+Behavior rules remain investigation specifications, not malware signatures. Relationship requirements that cannot be deterministically established remain unresolved rather than assumed.
+
+This does not restore the retired generic vulnerability RuleEngine architecture from ADR-017. The purpose is to qualify threat-informed malware-behavior investigations.
+
+ADR-026 — Cross-behavior correlation is deterministic-first
+
+Malware behavior frequently emerges from relationships between independently supported investigations.
+
+Future correlation may model chains such as:
+
+persistence → service → communication
+collection → staging → transmission
+payload write → dynamic loading → reflection
+accessibility → UI collection → credential-relevant handling
+
+A correlation must first have deterministic support such as shared evidence IDs, common methods/classes, source-backed graph paths, component transitions or validated source/sink relationships.
+
+An LLM may explain or prioritize a supported chain but cannot create the underlying relationship.
+
+Independent behavior findings remain valid when no cross-behavior relationship can be established.
+
+ADR-027 — Semantic APK retrieval and DEX fallback are evidence-recovery aids
+
+Future APK-code indexing may semantically retrieve relevant methods/classes around an already-qualified behavior. Semantic similarity identifies candidate APK context; it is not evidence. Retrieved code must pass normal source-location, ownership, graph and deterministic validation before contributing to a finding.
+
+Threat-knowledge retrieval and APK-code retrieval remain conceptually separate:
+
+Threat Knowledge Retrieval → external KNOWLEDGE
+APK Code Retrieval        → candidate APK implementation
+
+Java source recovery also cannot be assumed for hostile malware. When JADX output is incomplete but DEX artifacts remain readable, future bounded DEX-level analysis may recover classes, methods, instructions, strings, references and basic call/control-flow information.
+
+The recovery hierarchy is:
+
+usable Java source
+      ↓ otherwise
+readable DEX
+      ↓ otherwise
+explicit coverage limitation
+
+Failure to recover source or DEX creates uncertainty, not evidence of behavior absence.
